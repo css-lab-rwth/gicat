@@ -59,7 +59,6 @@
 
   </v-main>
 </template>
-
 <script>
 import { mapActions, mapGetters } from "vuex";
 const ce = window.ce;
