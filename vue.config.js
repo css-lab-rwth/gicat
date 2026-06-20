@@ -2,6 +2,19 @@ const { defineConfig } = require("@vue/cli-service");
 module.exports = defineConfig({
   lintOnSave: false, //TODO: ONLY TEMPORARY
   transpileDependencies: true,
+  devServer: {
+    client: {
+      overlay: {
+        // ignore the benign "ResizeObserver loop" warning in the dev overlay
+        runtimeErrors: (error) =>
+          !(
+            error &&
+            error.message &&
+            error.message.includes("ResizeObserver loop")
+          ),
+      },
+    },
+  },
   pluginOptions: {
     electronBuilder: {
       nodeIntegration: true,

@@ -33,6 +33,19 @@ import {
   mdiArrowULeftTop,
 } from "@mdi/js";
 
+// Swallow the benign "ResizeObserver loop" warning so the dev overlay doesn't
+// flag it as a crash (capture phase runs before the overlay's handler).
+window.addEventListener(
+  "error",
+  (e) => {
+    if (e && e.message && e.message.indexOf("ResizeObserver loop") !== -1) {
+      e.stopImmediatePropagation();
+      e.preventDefault();
+    }
+  },
+  true,
+);
+
 // create Vuetify
 const vuetify = createVuetify({
   theme: {

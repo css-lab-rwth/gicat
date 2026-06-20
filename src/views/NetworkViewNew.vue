@@ -58,7 +58,7 @@
         ></v-slider>
       </div>
 
-      <div class="renderer" @click="handleRendererClick">
+      <div class="renderer">
         <v-btn
           icon
           @click.stop="handleMetricsDrawer()"
@@ -98,11 +98,13 @@
             <v-list-item>
               <v-slider
                 v-model="frequencySlider"
+                class="mt-8"
                 label="Frequency:"
                 step="1"
-                :max="25"
-                :min="2"
+                :max="10"
+                :min="1"
                 rounded="0"
+                thumb-label="always"
                 @update:model-value="getFrequentNodes(frequencySlider)"
               ></v-slider>
             </v-list-item>
@@ -119,7 +121,10 @@
                 <v-list-item-subtitle>
                   Frequency: {{ value }}
                 </v-list-item-subtitle>
-                <v-menu>
+                <v-menu
+                  v-model="colorMenus['n:' + key]"
+                  :close-on-content-click="false"
+                >
                   <template #activator="{ props }">
                     <v-icon
                       v-bind="props"
@@ -128,24 +133,39 @@
                     ></v-icon>
                   </template>
                   <v-color-picker
-                    hide-canvas
                     hide-inputs
                     :model-value="getLabelColor(key)"
                     @update:model-value="setLabelColor(key, $event)"
-                    width="200"
-                    height="150"
+                    width="300"
                   >
                     <template #actions>
-                      <v-tooltip text="reset" location="top">
-                        <template #activator="{ props }">
-                          <v-icon
-                            v-bind="props"
-                            @click="setLabelColor(key, '#000000')"
-                            icon="$undo"
-                            style="cursor: pointer"
-                          ></v-icon>
-                        </template>
-                      </v-tooltip>
+                      <div
+                        style="
+                          display: flex;
+                          align-items: center;
+                          justify-content: space-between;
+                          width: 100%;
+                        "
+                      >
+                        <v-tooltip text="reset" location="top">
+                          <template #activator="{ props }">
+                            <v-icon
+                              v-bind="props"
+                              @click="setLabelColor(key, '#000000')"
+                              icon="$undo"
+                              style="cursor: pointer"
+                            ></v-icon>
+                          </template>
+                        </v-tooltip>
+                        <v-btn
+                          size="small"
+                          variant="tonal"
+                          color="primary"
+                          @click="colorMenus['n:' + key] = false"
+                        >
+                          Apply
+                        </v-btn>
+                      </div>
                     </template>
                   </v-color-picker>
                 </v-menu>
@@ -183,7 +203,10 @@
                 <v-list-item-subtitle>
                   Target of {{ target.count }} nodes
                 </v-list-item-subtitle>
-                <v-menu>
+                <v-menu
+                  v-model="colorMenus['t:' + target.label]"
+                  :close-on-content-click="false"
+                >
                   <template #activator="{ props }">
                     <v-icon
                       v-bind="props"
@@ -192,19 +215,18 @@
                     ></v-icon>
                   </template>
                   <v-color-picker
-                    hide-canvas
                     hide-inputs
                     :model-value="getLabelColor(target.label)"
                     @update:model-value="setLabelColor(target.label, $event)"
-                    width="200"
-                    height="150"
+                    width="300"
                   >
                     <template #actions>
                       <div
                         style="
                           display: flex;
-                          justify-content: center;
+                          justify-content: space-between;
                           align-items: center;
+                          width: 100%;
                         "
                       >
                         <v-tooltip text="reset" location="top">
@@ -217,6 +239,14 @@
                             ></v-icon>
                           </template>
                         </v-tooltip>
+                        <v-btn
+                          size="small"
+                          variant="tonal"
+                          color="primary"
+                          @click="colorMenus['t:' + target.label] = false"
+                        >
+                          Apply
+                        </v-btn>
                       </div>
                     </template>
                   </v-color-picker>
@@ -225,195 +255,85 @@
             </v-list-item>
           </v-list>
         </v-navigation-drawer>
-        <v-network-graph
-          ref="graph"
-          class="graph"
-          :zoom-level="0.5"
-          :nodes="nodes"
-          :edges="edges"
-          :configs="configs"
-          :event-handlers="eventHandlers"
-          :selected-nodes="selectedNodes"
-        >
-          <template #override-node="{ config, nodeId, ...slotProps }">
-            <rect
-              class="testClass"
-              :width="
-                isFolder(nodes[nodeId])
-                  ? Math.max(nodes[nodeId].name.length * 20, 200)
-                  : Math.max(nodes[nodeId].name.length * 12, 200)
-              "
-              :height="config.height"
-              :fill="config.color"
-              :stroke="config.strokeColor"
-              :stroke-width="config.strokeWidth"
-              v-bind="slotProps"
-              :x="
-                isFolder(nodes[nodeId])
-                  ? -(nodes[nodeId].name.length * 20) / 2
-                  : -(nodes[nodeId].name.length * 12) / 2
-              "
-              y="-25"
-              :rx="isFolder(nodes[nodeId]) ? 2 : 25"
-              v-if="!nodes[nodeId].hidden && isFilterSelected(nodes[nodeId])"
-            />
-            <div
-              width="0"
-              height="0"
-              fill="white"
-              v-bind="slotProps"
-              x="-100"
-              y="-25"
-              rx="15"
-              v-else
-            ></div>
-          </template>
-          <template #override-node-label="{ text, nodeId }">
-            <text
-              :x="
-                this.isFolder(nodes[nodeId])
-                  ? nodes[nodeId].name.length * 20 >= 200
-                    ? 0
-                    : (200 - nodes[nodeId].name.length * 20) / 2
-                  : nodes[nodeId].name.length * 12 >= 200
-                  ? 0
-                  : (200 - nodes[nodeId].name.length * 12) / 2
-              "
-              y="0"
-              :font-size="this.isFolder(nodes[nodeId]) ? 30 : 20"
-              :font-weight="this.isFolder(nodes[nodeId]) ? 'bold' : 'normal'"
-              text-anchor="middle"
-              dominant-baseline="middle"
-              fill="#ffffff"
-              v-if="
-                !nodes[nodeId].hidden && this.isFilterSelected(nodes[nodeId])
-              "
-            >
-              {{ nodes[nodeId].name || text }}
-              <title>{{ nodes[nodeId].fullLabel || text }}</title>
-            </text>
-            <text v-else></text>
-          </template>
-          <template #edge-label="{ edge, ...slotProps }">
-            <v-edge-label
-              :text="edge.label"
-              :fill-opacity="edgeLabelHidden(edge) ? 0 : 1"
-              vertical-align="above"
-              v-bind="slotProps"
-              align="center"
-            />
-          </template>
-          <template
-            #edge-overlay="{
-              scale,
-              center,
-              position,
-              hovered,
-              selected,
-              edge,
-              ...slotProps
-            }"
-          >
-            <!-- Place the triangle at the center of the edge -->
-            <path
-              class="marker"
-              :class="{ hovered, selected }"
-              d="M-5 -5 L5 0 L-5 5 Z"
-              :transform="
-                makeTransform(center, position, scale, hovered, selected)
-              "
-              :fill="
-                this.edgeHidden(edge) || this.edgeLabelHidden(edge)
-                  ? 'white'
-                  : 'black'
-              "
-              :fill-opacity="
-                this.edgeHidden(edge) || this.edgeLabelHidden(edge) ? 0 : 1
-              "
-              v-bind="slotProps"
-            />
-          </template>
-        </v-network-graph>
+        <canvas ref="glcanvas" class="graph"></canvas>
       </div>
     </div>
   </v-main>
 </template>
 
 <script>
-import { ref } from "vue";
+import { ref, markRaw } from "vue";
 import { mapActions, mapGetters } from "vuex";
-import * as vNG from "v-network-graph";
-import { ForceLayout } from "v-network-graph/lib/force-layout";
 import { persistentStore } from "../store/persistentStore";
+import { GraphLayout } from "../webgl/GraphLayout";
+import { WebGLGraphRenderer } from "../webgl/WebGLGraphRenderer";
+import { parseColor } from "../webgl/glUtils";
 const os = require("node:os");
-
-const getForcedLayout = new ForceLayout({
-  positionFixedByDrag: true,
-  positionFixedByClickWithAltKey: true,
-  createSimulation: (d3, nodes, edges) => {
-    // d3-force parameters
-    const forceLink = d3.forceLink(edges).id((d) => d.id);
-    return d3
-      .forceSimulation(nodes)
-      .force("edge", forceLink.distance(500).strength(5000))
-      .force("charge", d3.forceManyBody().strength(-7000))
-      .force("collide", d3.forceCollide(5).iterations(2))
-      .force("x", d3.forceX())
-      .force("y", d3.forceY())
-      .alphaMin(0.05) // stop simulation sooner with higher alphaMin
-      .alphaDecay(0.05) // faster decay with higher alphaDecay
-      .velocityDecay(0.9); // higher friction with higher velocityDecay
-  },
-});
 
 export default {
   setup() {
-    const graph = ref(null);
+    const graph = markRaw(ref(null));
     return { graph };
   },
   mounted() {
-    this.layoutHandler = new ForceLayout({
-      positionFixedByDrag: true,
-      positionFixedByClickWithAltKey: true,
-      createSimulation: (d3, nodes, edges) => {
-        const forceLink = d3.forceLink(edges).id((d) => d.id);
-        const sim = d3
-          .forceSimulation(nodes)
-          .force("edge", forceLink.distance(this.dist).strength(this.strength))
-          .force("charge", d3.forceManyBody().strength(this.charge))
-          .force("collide", d3.forceCollide(5).iterations(4))
-          .force("x", d3.forceX())
-          .force("y", d3.forceY())
-          .alphaMin(0.0001);
-        this.simulation = sim;
-        return sim;
-      },
-    });
-    this.configs.view.layoutHandler = this.layoutHandler;
     this.initGraph();
+
+    // d3-force layout + WebGL renderer (markRaw to keep them out of reactivity).
+    this.layout = markRaw(new GraphLayout());
+    this.layout.build(this.nodes, this.edges);
+
+    // remove any stray graph canvases a hot-reload may have left behind
+    const liveCanvas = this.$refs.glcanvas;
+    document.querySelectorAll("canvas.graph").forEach((c) => {
+      if (c !== liveCanvas && c.parentElement) {
+        c.parentElement.removeChild(c);
+      }
+    });
+
+    this.renderer = markRaw(
+      new WebGLGraphRenderer(this.$refs.glcanvas, {
+        onNodeClick: (id, evt) => {
+          this.leftClick(id);
+          // alt+click toggles a node's pin
+          if (evt && evt.altKey) this.layout.toggleFixed(id);
+        },
+        onNodeDblClick: (id) => this.doubleClick(id),
+        onNodeContextMenu: () => this.rightClick(),
+        onBackgroundClick: () => this.clearGraphSelection(),
+        onNodeDragStart: (id) => this.layout.dragStart(id),
+        onNodeDragMove: (id, x, y) => this.layout.dragMove(id, x, y),
+        onNodeDragEnd: (id) => this.layout.dragEnd(id),
+        getNodeTooltip: (id) => {
+          const n = this.nodes[id];
+          return n ? n.fullLabel || n.label || "" : "";
+        },
+      }),
+    );
+    this.renderer.attachLayout(this.layout);
+    this.renderer.observeResize();
+    this.refreshVisuals();
+
+    this.layout.createSimulation((d3, nodes, edges) =>
+      this.makeInitialSimulation(d3, nodes, edges),
+    );
+
+    // keep downloadSVG() working
+    this.graph = markRaw({ exportAsSvgText: () => this.renderer.exportSvg() });
+
     this.drawer = false;
+    this.$nextTick(() => this.renderer && this.renderer.resize());
+  },
+  beforeUnmount() {
+    if (this.renderer) this.renderer.destroy();
+    if (this.layout) this.layout.destroy();
   },
   data() {
     return {
       frequencySlider: 2,
       drawer: null,
       highlightedDrawerLabels: [],
-      eventHandlers: {
-        // wildcard: capture all events
-        "*": (type, event) => {
-          if (event instanceof Object) {
-            if (type == "node:dblclick") {
-              this.doubleClick(event.node);
-            }
-            if (type == "node:contextmenu") {
-              this.rightClick(event.node);
-            }
-            if (type == "node:click") {
-              this.leftClick(event.node);
-            }
-          }
-        },
-      },
+      colorMenus: {}, // per-label open state for the color-picker menus
+
       playPause: "Pause",
       nodes: [],
       edges: [],
@@ -422,87 +342,6 @@ export default {
       dist: 0,
       strength: 1,
       charge: -12000,
-      layoutHandler: null,
-      configs: vNG.defineConfigs({
-        view: {
-          scalingObjects: true,
-          layoutHandler: getForcedLayout,
-        },
-        node: {
-          selectable: true,
-          normal: {
-            color: (node) => node.color,
-            strokeWidth: 3,
-            strokeColor: (node) => node.strokeColor, // use node.strokeColor
-            width: "300",
-            height: "50",
-          },
-          hover: {
-            strokeWidth: 6,
-            color: (node) => node.color,
-            strokeColor: (node) => node.strokeColor,
-            width: "300",
-            height: "50",
-          },
-          selected: {
-            strokeWidth: 6,
-            strokeColor: (node) => node.strokeColor,
-            color: (node) => node.color,
-            width: "300",
-            height: "50",
-          },
-          focusring: {
-            visible: false,
-          },
-        },
-        edge: {
-          normal: {
-            color: (edge) =>
-              edge.label &&
-              !(this.edgeHidden(edge) | this.edgeLabelHidden(edge))
-                ? edge.color
-                : this.edgeHidden(edge) | this.edgeLabelHidden(edge)
-                ? "#ffffff"
-                : "#000000",
-            width: 2,
-            dasharray: "0",
-          },
-          selectable: 50,
-          selected: {
-            width: 6,
-            color: (edge) =>
-              edge.label &&
-              !(this.edgeHidden(edge) | this.edgeLabelHidden(edge))
-                ? edge.color
-                : this.edgeHidden(edge) | this.edgeLabelHidden(edge)
-                ? "#ffffff"
-                : "#000000",
-            dasharray: "0",
-          },
-          hover: {
-            width: 6,
-            color: (edge) =>
-              edge.label &&
-              !(this.edgeHidden(edge) | this.edgeLabelHidden(edge))
-                ? edge.color
-                : this.edgeHidden(edge) | this.edgeLabelHidden(edge)
-                ? "#ffffff"
-                : "#000000",
-            dasharray: "0",
-          },
-          zOrder: {
-            enabled: true,
-            bringToFrontOnHover: false,
-            bringToFrontOnSelected: true,
-            zIndex: (edge) =>
-              this.edgeHidden(edge) | this.edgeLabelHidden(edge) ? 1 : 2,
-          },
-          label: {
-            fontSize: 30,
-            margin: 20,
-          },
-        },
-      }),
       physicsEnabled: true,
       savedLayout: null,
       selectedNodes: [],
@@ -522,18 +361,114 @@ export default {
       "addFilter",
     ]),
 
-    handleRendererClick(event) {
-      if (event.target.classList.contains("v-ng-canvas")) {
-        console.log("Renderer background clicked, clearing selection");
-        this.selectedNodes = [];
-        this.highlightedDrawerLabels = [];
-        // Set isActive to false for all nodes
-        Object.values(this.nodes).forEach((node) => {
-          if (node.meta) node.meta.active = false;
-        });
-      } else {
-        console.log("Clicked on graph element:", event.target);
+    // background click clears the selection (called from the renderer)
+    clearGraphSelection() {
+      console.log("Renderer background clicked, clearing selection");
+      this.selectedNodes = [];
+      this.highlightedDrawerLabels = [];
+      // Set isActive to false for all nodes
+      Object.values(this.nodes).forEach((node) => {
+        if (node.meta) node.meta.active = false;
+      });
+      if (this.renderer) this.renderer.setSelection(this.selectedNodes);
+    },
+
+    // ---- WebGL renderer integration --------------------------------------
+
+    // initial d3-force config (kept identical to the old ForceLayout)
+    makeInitialSimulation(d3, nodes, edges) {
+      const forceLink = d3.forceLink(edges).id((d) => d.id);
+      const sim = d3
+        .forceSimulation(nodes)
+        .force("edge", forceLink.distance(this.dist).strength(this.strength))
+        .force("charge", d3.forceManyBody().strength(this.charge))
+        .force("collide", d3.forceCollide(5).iterations(4))
+        .force("x", d3.forceX())
+        .force("y", d3.forceY())
+        .alphaMin(0.0001);
+      this.simulation = sim;
+      return sim;
+    },
+
+    // d3-force config used when forces change / on resume
+    makeSimulation(d3, nodes, edges) {
+      const forceLink = d3.forceLink(edges).id((d) => d.id);
+      const sim = d3
+        .forceSimulation(nodes)
+        .force("edge", forceLink.distance(this.dist).strength(this.strength))
+        .force("charge", d3.forceManyBody().strength(this.charge))
+        .force("collide", d3.forceCollide(5).iterations(2))
+        .force("x", d3.forceX())
+        .force("y", d3.forceY())
+        .alphaMin(0.01)
+        .alphaDecay(0.05)
+        .velocityDecay(0.9);
+      this.simulation = sim;
+      return sim;
+    },
+
+    // build the per-node/edge visual descriptors the renderer draws, using the
+    // same helpers and numbers the old SVG template used
+    buildRenderDescriptors() {
+      const nodeIds = this.layout.nodeIds;
+      const nodeDescs = new Array(nodeIds.length);
+      for (let i = 0; i < nodeIds.length; i++) {
+        const node = this.nodes[nodeIds[i]];
+        const folder = this.isFolder(node);
+        const len = node.name ? node.name.length : 0;
+        const k = folder ? 20 : 12;
+        const w = Math.max(len * k, 200);
+        const h = 50;
+        // rect center offset from the node position (rect drawn at x=-(len*k)/2)
+        const offsetX = -(len * k) / 2 + w / 2;
+        const labelAnchorX = len * k >= 200 ? 0 : (200 - len * k) / 2;
+        nodeDescs[i] = {
+          visible: !node.hidden && this.isFilterSelected(node),
+          w,
+          h,
+          offsetX,
+          offsetY: 0,
+          fill: parseColor(node.color),
+          stroke: parseColor(node.strokeColor),
+          strokeW: 3,
+          radius: folder ? 2 : 25,
+          label: node.name || "",
+          labelAnchorX,
+          fontPx: folder ? 30 : 20,
+          bold: folder,
+          tooltip: node.fullLabel || node.label || "",
+        };
       }
+
+      const edgeDescs = new Array(this.edges.length);
+      for (let j = 0; j < this.edges.length; j++) {
+        const edge = this.edges[j];
+        const hidden = !!this.edgeHidden(edge);
+        const labelHidden = !!this.edgeLabelHidden(edge);
+        // labeled & visible -> edge.color; hidden -> invisible; else black
+        const lineVisible = !labelHidden;
+        const markerVisible = !(hidden || labelHidden);
+        const baseColor = edge.label ? parseColor(edge.color) : [0, 0, 0, 1];
+        edgeDescs[j] = {
+          sourceId: edge.source,
+          targetId: edge.target,
+          lineVisible,
+          color: baseColor,
+          width: 2,
+          markerVisible,
+          markerColor: [0, 0, 0, 1],
+          label: edge.label,
+          labelVisible: !labelHidden && !!edge.label,
+          labelFontPx: 30,
+        };
+      }
+      return { nodeDescs, edgeDescs };
+    },
+
+    refreshVisuals() {
+      if (!this.renderer) return;
+      const d = this.buildRenderDescriptors();
+      this.renderer.updateVisuals(d.nodeDescs, d.edgeDescs);
     },
 
     makeTransform(center, edgePos, scale, hovered, selected) {
@@ -740,6 +675,7 @@ export default {
         // Remove from selectedNodes
         this.selectedNodes = this.selectedNodes.filter((id) => id !== nodeId);
       }
+      if (this.renderer) this.renderer.setSelection(this.selectedNodes);
     },
     highlightNodesByLabel(label) {
       const idx = this.highlightedDrawerLabels.indexOf(label);
@@ -776,6 +712,7 @@ export default {
           this.showNode(element);
         }
       });
+      this.refreshVisuals();
     },
 
     hideNode(node) {
@@ -872,37 +809,16 @@ export default {
     },
     toggleSimulation() {
       if (this.physicsEnabled) {
-        // Pause: switch to SimpleLayout, simulation reference is now invalid
-        this.savedLayout = this.configs.view.layoutHandler;
-        this.configs.view.layoutHandler = new vNG.SimpleLayout();
+        // Pause: stop ticking (positions freeze in place, like SimpleLayout).
+        this.layout.stop();
         this.simulation = null; // simulation is stopped
         this.physicsEnabled = false;
         this.playPause = "Play";
       } else {
-        // Resume: restore ForceLayout and re-create simulation
-        this.layoutHandler = new ForceLayout({
-          positionFixedByDrag: true,
-          positionFixedByClickWithAltKey: true,
-          createSimulation: (d3, nodes, edges) => {
-            const forceLink = d3.forceLink(edges).id((d) => d.id);
-            const sim = d3
-              .forceSimulation(nodes)
-              .force(
-                "edge",
-                forceLink.distance(this.dist).strength(this.strength),
-              )
-              .force("charge", d3.forceManyBody().strength(this.charge))
-              .force("collide", d3.forceCollide(5).iterations(2)) // 2-3 iterations max
-              .force("x", d3.forceX())
-              .force("y", d3.forceY())
-              .alphaMin(0.01) // stop simulation sooner
-              .alphaDecay(0.05) // faster decay
-              .velocityDecay(0.9); // higher friction
-            this.simulation = sim; // update reference
-            return sim;
-          },
-        });
-        this.configs.view.layoutHandler = this.layoutHandler;
+        // Resume: re-create the simulation with the same force configuration.
+        this.layout.createSimulation((d3, nodes, edges) =>
+          this.makeSimulation(d3, nodes, edges),
+        );
         this.physicsEnabled = true;
         this.playPause = "Pause";
       }
@@ -960,43 +876,25 @@ export default {
     },
     setLabelColor(label, color) {
       this.labelColors[label] = color;
-      // Update the strokeColor for all nodes with this label
-      Object.values(this.nodes).forEach((node) => {
-        if (node.label === label) {
+      // recolor matching nodes' border and push just those to the renderer
+      // (cheap; keeps the color picker smooth)
+      const rgba = parseColor(color);
+      const ids = this.layout ? this.layout.nodeIds : [];
+      const indices = [];
+      for (let i = 0; i < ids.length; i++) {
+        const node = this.nodes[ids[i]];
+        if (node && node.label === label) {
           node.strokeColor = color;
+          indices.push(i);
         }
-      });
-      // Also update the strokeColor for nodes that are frequent targets
-      this.getFrequentTargets(this.frequencySlider).forEach((target) => {
-        if (target.label === label && this.nodes[target.node]) {
-          this.nodes[target.node].strokeColor = color;
-        }
-      });
+      }
+      if (this.renderer) this.renderer.setNodeStrokeColor(indices, rgba);
     },
     recreateSimulationPerformance() {
-      this.layoutHandler = new ForceLayout({
-        positionFixedByDrag: true,
-        positionFixedByClickWithAltKey: true,
-        createSimulation: (d3, nodes, edges) => {
-          const forceLink = d3.forceLink(edges).id((d) => d.id);
-          const sim = d3
-            .forceSimulation(nodes)
-            .force(
-              "edge",
-              forceLink.distance(this.dist).strength(this.strength),
-            )
-            .force("charge", d3.forceManyBody().strength(this.charge))
-            .force("collide", d3.forceCollide(5).iterations(2))
-            .force("x", d3.forceX())
-            .force("y", d3.forceY())
-            .alphaMin(0.01)
-            .alphaDecay(0.05)
-            .velocityDecay(0.9);
-          this.simulation = sim;
-          return sim;
-        },
-      });
-      this.configs.view.layoutHandler = this.layoutHandler;
+      if (!this.layout) return;
+      this.layout.createSimulation((d3, nodes, edges) =>
+        this.makeSimulation(d3, nodes, edges),
+      );
     },
   },
 
@@ -1019,36 +917,12 @@ export default {
     getPhysicsEnabled() {
       return this.physicsEnabled;
     },
-    computePhysics() {
-      let newForcedLayout = new ForceLayout({
-        positionFixedByDrag: true,
-        positionFixedByClickWithAltKey: true,
-        createSimulation: (d3, nodes, edges) => {
-          console.log("nodes: ", nodes);
-          console.log("edges: ", edges);
-          // d3-force parameters
-          const forceLink = d3.forceLink(edges).id((d) => d.id);
-          return (
-            d3
-              .forceSimulation(nodes)
-              .force(
-                "edge",
-                forceLink.distance(this.dist).strength(this.strength),
-              )
-              .force("charge", d3.forceManyBody().strength(this.charge))
-              .force("x", d3.forceX())
-              .force("y", d3.forceY())
-              //.stop() // tick manually,
-              .tick(1)
-              .alpha(1)
-              .velocityDecay(0.8)
-          );
-        },
-      });
-      return newForcedLayout;
-    },
   },
   watch: {
+    filtersSelected() {
+      // filter selection changes visibility -> rebuild visuals
+      this.refreshVisuals();
+    },
     dist() {
       this.recreateSimulationPerformance();
       this.physicsEnabled = true;
@@ -1103,6 +977,9 @@ export default {
   width: 97%;
   height: 100%;
   border: 1px solid #000;
+  display: block;
+  box-sizing: border-box;
+  touch-action: none;
 }
 
 .slider {
