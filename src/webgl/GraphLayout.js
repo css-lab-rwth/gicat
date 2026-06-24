@@ -25,6 +25,7 @@ export class GraphLayout {
     this.edgePairs = [];
     this.positions = new Float32Array(0);
     this.sim = null;
+    this.paused = false; // when true, drag/pin must not restart the sim
     /** Renderer hooks this to flag a redraw when positions move. */
     this.onPositionsChanged = null;
   }
@@ -70,6 +71,7 @@ export class GraphLayout {
    */
   createSimulation(makeFn) {
     if (this.sim) this.sim.stop();
+    this.paused = false;
     const sim = makeFn(d3, this.layoutNodes, this._freshSimEdges());
     this.sim = sim;
     sim.on("tick", () => this._tick());
@@ -88,13 +90,16 @@ export class GraphLayout {
     if (this.onPositionsChanged) this.onPositionsChanged();
   }
 
-  /** Gentle restart (matches v-network-graph's internal `v()` helper). */
+  // Gentle restart — but never while paused, so dragging/pinning a node can't
+  // un-freeze the whole simulation.
   restart() {
-    if (this.sim) this.sim.alpha(0.1).restart();
+    if (this.paused || !this.sim) return;
+    this.sim.alpha(0.1).restart();
   }
 
-  /** Stop ticking but keep positions (used by Pause / unmount). */
+  // Stop ticking and stay paused until createSimulation() resumes.
   stop() {
+    this.paused = true;
     if (this.sim) this.sim.stop();
   }
 

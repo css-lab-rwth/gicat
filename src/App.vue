@@ -10,7 +10,7 @@
       <v-toolbar>
         <v-toolbar-items class="mx-auto">
           <a
-            href="https://www.theoryofscience.rwth-aachen.de/cms/~qpmz/TheoryofScience/?lidx=1"
+            href="https://www.css-lab.rwth-aachen.de/"
             target="_blank"
             rel="noopener noreferrer"
           >

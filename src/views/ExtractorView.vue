@@ -21,14 +21,17 @@
       </div>
     </div>
 
-    <!-- Custom Vue Dialog for the 200+ File Warning -->
+    <!-- Custom Vue Dialog for the large-graph warning -->
     <v-dialog v-model="showWarningDialog" max-width="500px" persistent>
       <v-card rounded="lg">
         <v-card-title class="text-h5 pt-4 pb-2">Large Directory Warning</v-card-title>
         
         <v-card-text>
-          Rendering a large graph may reduce performance. Do you want to continue?
-          
+          This directory generated
+          <strong>{{ warningNodeCount.toLocaleString() }}</strong>
+          nodes (files &amp; folders), above the ~2,000 recommended for smooth
+          performance. Rendering it may be slow — do you want to continue?
+
           <br /><br />
           
           <!-- The clickable 'More info' link -->
@@ -126,15 +129,15 @@ export default {
         try {
           let graph = await ce.getGraph(this.getRepoPath);
 
-          if (graph.nodes.length > 200) {
+          if (graph.nodes.length > 2000) {
             // Store the graph and open the Vue dialog
             this.tempGraph = graph;
             this.showMoreInfo = false; // Reset dropdown state
-            this.showWarningDialog = true; 
+            this.showWarningDialog = true;
             return; // Stop here and wait for user to click Continue or Cancel
           }
 
-          // If < 200, skip the warning and process immediately
+          // Below the threshold, skip the warning and process immediately
           await this.processAndNavigate(graph);
 
         } catch (err) {
@@ -192,6 +195,11 @@ export default {
 
     isRepoPathEmpty() {
       return this.getRepoPath != "";
+    },
+
+    // node count shown in the large-graph warning dialog
+    warningNodeCount() {
+      return this.tempGraph ? this.tempGraph.nodes.length : 0;
     },
   },
 };
