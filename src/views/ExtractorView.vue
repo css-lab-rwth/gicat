@@ -30,7 +30,7 @@
           This directory generated
           <strong>{{ warningNodeCount.toLocaleString() }}</strong>
           nodes (files &amp; folders), above the ~2,000 recommended for smooth
-          performance. Rendering it may be slow — do you want to continue?
+          performance. Rendering it may reduce the performance — do you want to continue?
 
           <br /><br />
           
