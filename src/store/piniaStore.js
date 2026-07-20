@@ -38,11 +38,15 @@ export const useMainStore = defineStore("main", {
     temp: "",
     inEditMode: false,
     labelSelection: [],
+    // Separate scopes so a node filter and an edge filter can be loaded for
+    // editing independently — a single shared scope locked the other section.
     editModeScope: "",
+    edgeEditModeScope: "",
   }),
   getters: {
     getInEditMode: (state) => state.inEditMode,
     getEditModeScope: (state) => state.editModeScope,
+    getEdgeEditModeScope: (state) => state.edgeEditModeScope,
     getTemp: (state) => state.temp,
     getFilterPackage: (state) => state.filterPackage,
     getPackageName: (state) => state.filterPackage.packageName,
@@ -81,6 +85,9 @@ export const useMainStore = defineStore("main", {
     },
     setEditModeScope(payload) {
       this.editModeScope = payload;
+    },
+    setEdgeEditModeScope(payload) {
+      this.edgeEditModeScope = payload;
     },
     setLabelSelection(payload) {
       this.labelSelection = payload;

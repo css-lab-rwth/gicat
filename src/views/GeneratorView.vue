@@ -11,22 +11,21 @@
         class="text-center"
         position="fixed"
       >
-        <v-list id="packageExplorer" v-model:opened="openedGroups">
+        <v-list id="packageExplorer">
           <v-list-item
             value="explorer"
             title="Package Explorer"
             color="#00549f"
           ></v-list-item>
-          <v-list-group value="package" v-if="main.getJson != null">
-            <template v-slot:activator="{ props }">
-              <v-list-item
-                v-bind="props"
-                :title="main.getPackageName"
-                prepend-icon="$package"
-                class="listItem"
-                elevation="2"
-              ></v-list-item>
-            </template>
+          <!-- Package details are always expanded — a collapsible group kept
+               hiding the filter lists (and their edit buttons) after import. -->
+          <template v-if="main.getJson != null">
+            <v-list-item
+              :title="main.getPackageName"
+              prepend-icon="$package"
+              class="listItem"
+              elevation="2"
+            ></v-list-item>
             <v-list-item
               v-if="main.getAuthors"
               title="Authors:"
@@ -77,7 +76,6 @@
               ></v-list-item>
               <v-btn
                 prepend-icon="$edit"
-                :disabled="main.getInEditMode"
                 @click="nodeEditMode(filter.name)"
                 >edit</v-btn
               >
@@ -111,12 +109,11 @@
               ></v-list-item>
               <v-btn
                 prepend-icon="$edit"
-                :disabled="main.getInEditMode"
                 @click="edgeEditMode(edge.name)"
                 >edit</v-btn
               >
             </v-list-group>
-          </v-list-group>
+          </template>
         </v-list>
       </v-card>
       <br />
@@ -363,7 +360,7 @@
               prepend-icon="$plus"
               @click="addNodeFilter"
               :disabled="main.getJson == null"
-              >{{ main.getInEditMode ? "save" : "Add filter" }}
+              >{{ main.getEditModeScope ? "save" : "Add filter" }}
             </v-btn>
             <v-btn class="ml-2" prepend-icon="$undo" @click="clearNodeFilter">
               Clear all
@@ -462,7 +459,7 @@
               prepend-icon="$plus"
               @click="addEdgeFilter"
               :disabled="main.getJson == null"
-              >{{ main.getInEditMode ? "save" : "Add filter" }}
+              >{{ main.getEdgeEditModeScope ? "save" : "Add filter" }}
             </v-btn>
             <v-btn class="ml-2" prepend-icon="$undo" @click="clearEdgeFilter">
               Clear all
@@ -506,9 +503,6 @@ export default {
         ["#0000FF", "#0000AA", "#000055"],
       ],
       importedFilter: null,
-      // Package group starts expanded so the imported package's details
-      // (authors, description, node/edge filter lists) are visible right away.
-      openedGroups: ["package"],
       attributes: {},
       quantifier: "",
       selected: "",
@@ -814,7 +808,6 @@ export default {
   props: {},
   methods: {
     nodeEditMode(filterName) {
-      this.main.setInEditMode(true);
       //console.log(filterName);
       for (let i = 0; i < this.main.getJson.nodeFilterList.length; i++) {
         if (this.main.getJson.nodeFilterList[i].name === filterName) {
@@ -843,10 +836,11 @@ export default {
       }
     },
     edgeEditMode(edgeFilterName) {
-      this.main.setInEditMode(true);
       for (let i = 0; i < this.main.getJson.edgeFilterList.length; i++) {
         if (this.main.getJson.edgeFilterList[i].name === edgeFilterName) {
-          this.main.setEditModeScope(this.main.getJson.edgeFilterList[i].id);
+          this.main.setEdgeEditModeScope(
+            this.main.getJson.edgeFilterList[i].id
+          );
           this.edgeName = this.main.getJson.edgeFilterList[i].name;
           this.fromAttributeSelection =
             this.main.getJson.edgeFilterList[i].from.attribute;
@@ -868,9 +862,12 @@ export default {
               this.toSelection = this.main.getJson.nodeFilterList[k].name;
             }
           }
+          // These belong to the matched filter — they used to sit outside the
+          // name check, so the LAST edge filter's color/label always loaded.
+          this.edgeColorpicker =
+            this.main.getJson.edgeFilterList[i].style.color;
+          this.edgeLabel = this.main.getJson.edgeFilterList[i].label;
         }
-        this.edgeColorpicker = this.main.getJson.edgeFilterList[i].style.color;
-        this.edgeLabel = this.main.getJson.edgeFilterList[i].label;
       }
     },
     nodeListDropdown() {
@@ -939,11 +936,11 @@ export default {
       this.toSelection = "";
       this.toAttributeSelection = "";
       this.edgeColorpicker = "#8ebae5";
-      this.main.setEditModeScope("");
+      this.main.setEdgeEditModeScope("");
       this.main.setInEditMode(false);
     },
     addNodeFilter() {
-      if (!this.main.getInEditMode) {
+      if (!this.main.getEditModeScope) {
         this.main.setGeneratedRegex("/" + this.main.getGeneratedRegex + "/gm"),
           this.main.getJson["nodeFilterList"].push({
             name: this.main.getRegexName,
@@ -1012,7 +1009,7 @@ export default {
       this.main.setInEditMode(false);
     },
     addEdgeFilter() {
-      if (!this.main.getInEditMode) {
+      if (!this.main.getEdgeEditModeScope) {
         this.main.getJson["edgeFilterList"].push({
           "allow-loop": this.main.getLoopSelection,
           mode: "",
@@ -1048,14 +1045,14 @@ export default {
         for (let i = 0; i < this.main.getJson.edgeFilterList.length; i++) {
           if (
             this.main.getJson.edgeFilterList[i].id ===
-            this.main.getEditModeScope
+            this.main.getEdgeEditModeScope
           ) {
             let tempFilter = this.main.getJson.edgeFilterList;
             tempFilter[i].label = this.edgeLabel;
             tempFilter[i].name = this.edgeName;
             tempFilter[i].from.attribute = this.fromAttributeSelection;
             tempFilter[i].to.attribute = this.toAttributeSelection;
-            tempFilter[i].style.color = this.edgeColorPicker;
+            tempFilter[i].style.color = this.edgeColorpicker;
 
             for (let j = 0; j < this.main.getJson.nodeFilterList.length; j++) {
               if (
@@ -1072,7 +1069,7 @@ export default {
               }
             }
             this.addEdgeFilterDialog = true;
-            this.main.setInEditMode(false);
+            this.main.setEdgeEditModeScope("");
           }
         }
       }
@@ -1186,6 +1183,8 @@ export default {
         this.main.setEdgeFilterList(edgeFilterList);
         this.main.setDate(date);
         this.main.setInEditMode(false);
+        this.main.setEditModeScope("");
+        this.main.setEdgeEditModeScope("");
 
         // Set the package explorer's json to a *fresh* object. generatePackage()
         // reused the same filterPackage reference, so when json already pointed
