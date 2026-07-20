@@ -24,7 +24,7 @@
             <v-btn prepend-icon="$home"></v-btn>
           </router-link>
           <router-link to="/options">
-            <v-btn>Options</v-btn>
+            <v-btn>Settings</v-btn>
           </router-link>
           <router-link to="/extractor">
             <v-btn>Extractor</v-btn>
@@ -56,7 +56,7 @@ export default {
       appTitle: "GICAT",
       navBarItems: [
         { title: "", path: "/", icon: "$home" },
-        { title: "Options", path: "/options" },
+        { title: "Settings", path: "/options" },
         { title: "Extractor", path: "/extractor" },
         { title: "Filter", path: "/filters" },
         { title: "License", path: "/license" },

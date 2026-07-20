@@ -679,22 +679,33 @@ export default {
     },
     highlightNodesByLabel(label) {
       const idx = this.highlightedDrawerLabels.indexOf(label);
-      if (idx === -1) {
+      const shouldHighlight = idx === -1;
+      if (shouldHighlight) {
         this.highlightedDrawerLabels.push(label);
       } else {
         this.highlightedDrawerLabels.splice(idx, 1);
       }
       // Find matching nodes
-      const nodeIds = Object.keys(this.nodes);
-      const matchingNodeIds = nodeIds.filter((nodeId) => {
+      const matchingNodeIds = Object.keys(this.nodes).filter((nodeId) => {
         const node = this.nodes[nodeId];
         return node && node.label === label;
       });
 
-      // Trigger leftClick for each matching node to simulate actual clicks
+      // Set the selection state explicitly rather than toggling each node.
+      // A per-node toggle (the old leftClick loop) turned already-active nodes
+      // off, so highlighting a label could deactivate its own nodes. Highlight
+      // means "activate all matches", un-highlight means "deactivate all".
+      const selected = new Set(this.selectedNodes);
       matchingNodeIds.forEach((nodeId) => {
-        this.leftClick(nodeId);
+        this.nodes[nodeId].meta.active = shouldHighlight;
+        if (shouldHighlight) {
+          selected.add(nodeId);
+        } else {
+          selected.delete(nodeId);
+        }
       });
+      this.selectedNodes = Array.from(selected);
+      if (this.renderer) this.renderer.setSelection(this.selectedNodes);
     },
     collapseChildren(hitNode) {
       console.warn("collapse children");

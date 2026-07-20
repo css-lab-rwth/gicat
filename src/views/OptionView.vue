@@ -1,7 +1,7 @@
 <template>
   <v-main>
     <div class="options">
-      <h1>Option page</h1>
+      <h1>Settings</h1>
       <p>
         Here you can choose your Code Editor of choice to further inspect the
         program code. You can also decide to save the code editor path in a
@@ -20,6 +20,21 @@
         Find Code Editor
       </v-btn>
     </div>
+    <div class="version-info">
+      <br />
+      <p>
+        You are running <strong>GICAT v{{ appVersion }}</strong>. A newer
+        version may be available — please check the releases page and download
+        the latest build here:
+      </p>
+      <a
+        href="https://github.com/css-lab-rwth/gicat/releases"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        github.com/css-lab-rwth/gicat/releases
+      </a>
+    </div>
   </v-main>
 </template>
 
@@ -31,6 +46,7 @@ const os = require("node:os");
 //const fs = require("node:fs");
 import * as path from "path";
 import { persistentStore } from "../store/persistentStore";
+import pkg from "../../package.json";
 //const { systemPreferences } = require("@electron/remote");
 
 export default {
@@ -41,7 +57,9 @@ export default {
     };
   },
   data() {
-    return {};
+    return {
+      appVersion: pkg.version,
+    };
   },
   name: "OptionsView",
   components: {},

@@ -11,6 +11,9 @@ export const useMainStore = defineStore("main", {
       edgeFilterList: [],
     },
     json: null,
+    // true once a filter package has been imported — the package explorer is
+    // only shown for imported packages, not while building one from scratch.
+    imported: false,
     edgeName: "",
     attributes: {},
     loopSelection: "",
@@ -49,6 +52,7 @@ export const useMainStore = defineStore("main", {
     getNodeFilterList: (state) => state.filterPackage.nodeFilterList,
     getEdgeFilterList: (state) => state.filterPackage.edgeFilterList,
     getJson: (state) => state.json,
+    getImported: (state) => state.imported,
     getEdgeName: (state) => state.edgeName,
     getAttributes: (state) => state.attributes,
     getLoopSelection: (state) => state.loopSelection,
@@ -113,6 +117,9 @@ export const useMainStore = defineStore("main", {
     },
     setJson(payload) {
       this.json = payload;
+    },
+    setImported(payload) {
+      this.imported = payload;
     },
     setEdgeName(payload) {
       this.edgeName = payload;

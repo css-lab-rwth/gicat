@@ -2,6 +2,7 @@
   <v-main>
     <div id="section">
       <v-card
+        v-if="main.getImported"
         width="40%"
         color="#c7ddf2"
         density="comfortable"
@@ -10,13 +11,13 @@
         class="text-center"
         position="fixed"
       >
-        <v-list id="packageExplorer">
+        <v-list id="packageExplorer" v-model:opened="openedGroups">
           <v-list-item
             value="explorer"
             title="Package Explorer"
             color="#00549f"
           ></v-list-item>
-          <v-list-group v-if="main.getJson != null">
+          <v-list-group value="package" v-if="main.getJson != null">
             <template v-slot:activator="{ props }">
               <v-list-item
                 v-bind="props"
@@ -364,6 +365,9 @@
               :disabled="main.getJson == null"
               >{{ main.getInEditMode ? "save" : "Add filter" }}
             </v-btn>
+            <v-btn class="ml-2" prepend-icon="$undo" @click="clearNodeFilter">
+              Clear all
+            </v-btn>
             <v-dialog v-model="addNodeFilterDialog" width="auto">
               <v-card>
                 <v-card-text>
@@ -460,6 +464,9 @@
               :disabled="main.getJson == null"
               >{{ main.getInEditMode ? "save" : "Add filter" }}
             </v-btn>
+            <v-btn class="ml-2" prepend-icon="$undo" @click="clearEdgeFilter">
+              Clear all
+            </v-btn>
             <v-dialog v-model="addEdgeFilterDialog" width="auto">
               <v-card>
                 <v-card-text>
@@ -499,6 +506,9 @@ export default {
         ["#0000FF", "#0000AA", "#000055"],
       ],
       importedFilter: null,
+      // Package group starts expanded so the imported package's details
+      // (authors, description, node/edge filter lists) are visible right away.
+      openedGroups: ["package"],
       attributes: {},
       quantifier: "",
       selected: "",
@@ -897,6 +907,41 @@ export default {
     resetRegex() {
       this.main.setGeneratedRegex("");
     },
+    // Reset only clears the regex. This wipes every field of the node filter
+    // form (name, extension, label, capture groups, colour, ...) and leaves
+    // edit mode, so a different filter can be edited from a clean slate.
+    clearNodeFilter() {
+      this.codeInput = "";
+      this.generatedRegex = "";
+      this.fileExtension = "";
+      this.regexName = "";
+      this.nodeLabel = "";
+      this.nodeAttributes = "";
+      this.nodeCaptureGroups = "";
+      this.labelAttributeSelection = "";
+      this.nodeColor = "#8ebae5";
+      this.quantifier = "";
+      this.selected = "";
+      this.generatorSelection = "";
+      this.snippetSelection = "";
+      this.captureGroup = "";
+      this.main.setAttributes({});
+      this.main.setEditModeScope("");
+      this.main.setInEditMode(false);
+    },
+    // Same idea for the edge filter form.
+    clearEdgeFilter() {
+      this.edgeName = "";
+      this.edgeLabel = "";
+      this.loopSelection = "";
+      this.fromSelection = "";
+      this.fromAttributeSelection = "";
+      this.toSelection = "";
+      this.toAttributeSelection = "";
+      this.edgeColorpicker = "#8ebae5";
+      this.main.setEditModeScope("");
+      this.main.setInEditMode(false);
+    },
     addNodeFilter() {
       if (!this.main.getInEditMode) {
         this.main.setGeneratedRegex("/" + this.main.getGeneratedRegex + "/gm"),
@@ -1108,17 +1153,56 @@ export default {
       this.main.setJson(this.main.getFilterPackage);
     },
     importFilter() {
-      //var reader = new FileReader();
-      this.importedFilter.text().then((value) => {
-        const parsedInput = JSON.parse(value);
-        //console.log(parsedInput);
-        this.main.setPackageName(parsedInput.packageName);
-        this.main.setAuthors(parsedInput.authors);
-        this.main.setDesc(parsedInput.desc);
-        this.main.setNodeFilterList(parsedInput.nodeFilterList);
-        this.main.setEdgeFilterList(parsedInput.edgeFilterList);
+      // v-file-input can hand back a single File or an array of files.
+      const file = Array.isArray(this.importedFilter)
+        ? this.importedFilter[0]
+        : this.importedFilter;
+      if (!file) return;
+
+      file.text().then((value) => {
+        let parsedInput;
+        try {
+          parsedInput = JSON.parse(value);
+        } catch (e) {
+          console.error("The imported filter file could not be parsed.", e);
+          return;
+        }
+
+        const packageName = parsedInput.packageName || "";
+        const authors = parsedInput.authors || "";
+        const desc = parsedInput.desc || "";
+        const date = parsedInput.date || new Date();
+        const nodeFilterList = Array.isArray(parsedInput.nodeFilterList)
+          ? parsedInput.nodeFilterList
+          : [];
+        const edgeFilterList = Array.isArray(parsedInput.edgeFilterList)
+          ? parsedInput.edgeFilterList
+          : [];
+
+        this.main.setPackageName(packageName);
+        this.main.setAuthors(authors);
+        this.main.setDesc(desc);
+        this.main.setNodeFilterList(nodeFilterList);
+        this.main.setEdgeFilterList(edgeFilterList);
+        this.main.setDate(date);
         this.main.setInEditMode(false);
-        this.generatePackage();
+
+        // Set the package explorer's json to a *fresh* object. generatePackage()
+        // reused the same filterPackage reference, so when json already pointed
+        // at it the node/edge lists in the explorer never re-rendered — only the
+        // package header (name/author/desc) updated. A new object guarantees the
+        // v-for over nodeFilterList/edgeFilterList re-renders on import.
+        this.main.setJson({
+          packageName,
+          authors,
+          desc,
+          date,
+          nodeFilterList,
+          edgeFilterList,
+        });
+
+        // Reveal the package explorer — it only shows for imported packages.
+        this.main.setImported(true);
       });
     },
     exportFilter() {
@@ -1155,9 +1239,11 @@ export default {
 }
 
 #packageExplorer {
-  overflow: scroll;
-  overflow-y: scroll;
-  max-height: 400px;
+  // Fill the panel down to the bottom of the window instead of a fixed 400px,
+  // and scroll vertically only — the horizontal bar just clipped the labels.
+  overflow-x: hidden;
+  overflow-y: auto;
+  max-height: calc(100vh - 96px);
 }
 
 li {
