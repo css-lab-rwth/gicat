@@ -40,17 +40,17 @@
               class="subItem"
             ></v-list-item>
             <v-list-item title="Node filter list"></v-list-item>
-            <v-list-group
+            <!-- Filters render fully expanded — no collapse groups, so every
+                 filter's details and edit button are visible right after import. -->
+            <template
               v-for="filter in main.getJson['nodeFilterList']"
               :key="filter.name"
             >
-              <template v-slot:activator="{ props }">
-                <v-list-item
-                  :title="filter.name"
-                  v-bind="props"
-                  class="listItem"
-                ></v-list-item>
-              </template>
+              <v-list-item
+                :title="filter.name"
+                class="listItem"
+                elevation="2"
+              ></v-list-item>
               <v-list-item
                 title="Regex:"
                 :subtitle="filter.regex"
@@ -79,19 +79,17 @@
                 @click="nodeEditMode(filter.name)"
                 >edit</v-btn
               >
-            </v-list-group>
+            </template>
             <v-list-item title="Edge filter list"></v-list-item>
-            <v-list-group
+            <template
               v-for="edge in main.getJson['edgeFilterList']"
               :key="edge.name"
             >
-              <template v-slot:activator="{ props }">
-                <v-list-item
-                  :title="edge.name"
-                  v-bind="props"
-                  class="listItem"
-                ></v-list-item>
-              </template>
+              <v-list-item
+                :title="edge.name"
+                class="listItem"
+                elevation="2"
+              ></v-list-item>
               <v-list-item
                 title="Edge label:"
                 :subtitle="edge.label"
@@ -112,7 +110,7 @@
                 @click="edgeEditMode(edge.name)"
                 >edit</v-btn
               >
-            </v-list-group>
+            </template>
           </template>
         </v-list>
       </v-card>
