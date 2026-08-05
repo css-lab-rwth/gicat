@@ -24,42 +24,61 @@
     <!-- Custom Vue Dialog for the large-graph warning -->
     <v-dialog v-model="showWarningDialog" max-width="500px" persistent>
       <v-card rounded="lg">
-        <v-card-title class="text-h5 pt-4 pb-2">Large Directory Warning</v-card-title>
-        
+        <v-card-title class="text-h5 pt-4 pb-2"
+          >Large Directory Warning</v-card-title
+        >
+
         <v-card-text>
           This directory generated
           <strong>{{ warningNodeCount.toLocaleString() }}</strong>
           nodes (files &amp; folders), above the ~2,000 recommended for smooth
-          performance. Rendering it may reduce the performance — do you want to continue?
+          performance. Rendering it may reduce the performance — do you want to
+          continue?
 
           <br /><br />
-          
+
           <!-- The clickable 'More info' link -->
-          <a 
-            href="#" 
-            @click.prevent="showMoreInfo = !showMoreInfo" 
-            style="text-decoration: none; color: #1976D2; font-weight: 500;"
+          <a
+            href="#"
+            @click.prevent="showMoreInfo = !showMoreInfo"
+            style="text-decoration: none; color: #1976d2; font-weight: 500"
           >
-            {{ showMoreInfo ? 'Hide info ▲' : 'More info ▼' }}
+            {{ showMoreInfo ? "Hide info ▲" : "More info ▼" }}
           </a>
 
           <!-- The dropdown description -->
           <v-expand-transition>
-            <div v-if="showMoreInfo" class="mt-3 text-body-2 text-grey-darken-1">
-              The directory you have selected is relatively large. Please make sure that your machine has enough resources to display a large graph or the performance of the software will be significantly reduced. Otherwise, you can go deeper into the directory tree to first analyze parts of the code and further reduce the number of nodes generated in this way.
+            <div
+              v-if="showMoreInfo"
+              class="mt-3 text-body-2 text-grey-darken-1"
+            >
+              The directory you have selected is relatively large. Please make
+              sure that your machine has enough resources to display a large
+              graph or the performance of the software will be significantly
+              reduced. Otherwise, you can go deeper into the directory tree to
+              first analyze parts of the code and further reduce the number of
+              nodes generated in this way.
             </div>
           </v-expand-transition>
-
         </v-card-text>
 
         <v-card-actions class="pb-4 pr-4">
           <v-spacer></v-spacer>
-          <v-btn color="grey-darken-1" variant="text" @click="cancelVisualization">Cancel</v-btn>
-          <v-btn color="primary" variant="elevated" @click="confirmVisualization">Continue</v-btn>
+          <v-btn
+            color="grey-darken-1"
+            variant="text"
+            @click="cancelVisualization"
+            >Cancel</v-btn
+          >
+          <v-btn
+            color="primary"
+            variant="elevated"
+            @click="confirmVisualization"
+            >Continue</v-btn
+          >
         </v-card-actions>
       </v-card>
     </v-dialog>
-
   </v-main>
 </template>
 
@@ -73,8 +92,8 @@ export default {
   data() {
     return {
       showWarningDialog: false, // Controls the popup visibility
-      showMoreInfo: false,      // Controls the dropdown text
-      tempGraph: null,          // Temporarily holds the graph while waiting for user input
+      showMoreInfo: false, // Controls the dropdown text
+      tempGraph: null, // Temporarily holds the graph while waiting for user input
     };
   },
   methods: {
@@ -139,7 +158,6 @@ export default {
 
           // Below the threshold, skip the warning and process immediately
           await this.processAndNavigate(graph);
-
         } catch (err) {
           console.error("Extraction failed:", err);
         }
@@ -176,10 +194,10 @@ export default {
       for (const filter of edgeFilters) {
         await ce.filterEdge(graph, filter);
       }
-      
+
       await this.setGraph(graph);
       this.$router.push({ path: "extractor/networkNew/" });
-    }
+    },
   },
 
   computed: {

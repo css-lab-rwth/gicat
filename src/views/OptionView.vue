@@ -23,9 +23,9 @@
     <div class="version-info">
       <br />
       <p>
-        You are running <strong>GICAT v{{ appVersion }}</strong>. A newer
-        version may be available — please check the releases page and download
-        the latest build here:
+        You are running <strong>GICAT v{{ appVersion }}</strong
+        >. A newer version may be available — please check the releases page and
+        download the latest build here:
       </p>
       <a
         href="https://github.com/css-lab-rwth/gicat/releases"

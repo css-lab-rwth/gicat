@@ -43,7 +43,7 @@ window.addEventListener(
       e.preventDefault();
     }
   },
-  true,
+  true
 );
 
 // create Vuetify

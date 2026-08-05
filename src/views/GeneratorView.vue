@@ -74,9 +74,7 @@
                 :subtitle="filter.labelAttribute"
                 class="subItem"
               ></v-list-item>
-              <v-btn
-                prepend-icon="$edit"
-                @click="nodeEditMode(filter.name)"
+              <v-btn prepend-icon="$edit" @click="nodeEditMode(filter.name)"
                 >edit</v-btn
               >
             </template>
@@ -105,9 +103,7 @@
                 :subtitle="edge.to.attribute"
                 class="subItem"
               ></v-list-item>
-              <v-btn
-                prepend-icon="$edit"
-                @click="edgeEditMode(edge.name)"
+              <v-btn prepend-icon="$edit" @click="edgeEditMode(edge.name)"
                 >edit</v-btn
               >
             </template>

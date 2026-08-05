@@ -16,10 +16,16 @@ export class LabelAtlas {
    */
   constructor(gl, opts = {}) {
     this.gl = gl;
-    this.superSample = opts.superSample || Math.min(Math.max(window.devicePixelRatio || 1, 2), 3);
+    this.superSample =
+      opts.superSample ||
+      Math.min(Math.max(window.devicePixelRatio || 1, 2), 3);
     this.maxSize = opts.maxSize || 4096;
     this.size = 1024;
-    this.pad = 1; // texel gap between cells to avoid bleeding
+    // Padding has to survive mip reduction: at level n each texel covers 2^n
+    // source texels, so neighbouring glyphs bleed into each other unless the
+    // gap is at least that wide. 4 covers the levels small text actually uses.
+    this.pad = 4;
+    this._mipsDirty = false;
 
     this.glyphs = new Map(); // key -> entry
     this.order = []; // keys in insertion order (for re-raster on grow)
@@ -47,13 +53,41 @@ export class LabelAtlas {
       0,
       gl.RGBA,
       gl.UNSIGNED_BYTE,
-      null,
+      null
     );
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    // Labels are drawn far smaller than they are rasterized when the graph is
+    // zoomed out, so minification needs a mip chain — plain LINEAR skips texels
+    // and breaks the glyphs up.
+    gl.texParameteri(
+      gl.TEXTURE_2D,
+      gl.TEXTURE_MIN_FILTER,
+      gl.LINEAR_MIPMAP_LINEAR
+    );
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    // The gap between cells halves with every level, so past level 3 the 4 texel
+    // padding runs out and neighbouring glyphs start bleeding together. Levels
+    // 0-3 already cover shrinking text to an eighth of its size, by which point
+    // a label is around a pixel tall and no longer readable anyway.
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAX_LEVEL, 3);
+    // A mip-filtered texture only samples correctly once every level exists,
+    // so build the (still empty) chain up front.
+    gl.generateMipmap(gl.TEXTURE_2D);
     return tex;
+  }
+
+  /**
+   * Rebuilds the mip chain if glyphs were added since the last call. The
+   * renderer calls this once per frame, so a burst of new glyphs costs one
+   * rebuild rather than one per glyph.
+   */
+  ensureMips() {
+    if (!this._mipsDirty || !this.texture) return;
+    this._mipsDirty = false;
+    const gl = this.gl;
+    gl.bindTexture(gl.TEXTURE_2D, this.texture);
+    gl.generateMipmap(gl.TEXTURE_2D);
   }
 
   _resetPacker() {
@@ -157,10 +191,11 @@ export class LabelAtlas {
       y,
       gl.RGBA,
       gl.UNSIGNED_BYTE,
-      this.scratch,
+      this.scratch
     );
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
     this.version++;
+    this._mipsDirty = true;
 
     const s = this.size;
     return {

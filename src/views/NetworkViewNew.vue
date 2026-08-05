@@ -192,7 +192,7 @@
               @click="highlightNodesByLabel(target.label)"
               :class="{
                 'highlighted-entry': highlightedDrawerLabels.includes(
-                  target.label,
+                  target.label
                 ),
               }"
             >
@@ -307,14 +307,14 @@ export default {
           const n = this.nodes[id];
           return n ? n.fullLabel || n.label || "" : "";
         },
-      }),
+      })
     );
     this.renderer.attachLayout(this.layout);
     this.renderer.observeResize();
     this.refreshVisuals();
 
     this.layout.createSimulation((d3, nodes, edges) =>
-      this.makeInitialSimulation(d3, nodes, edges),
+      this.makeInitialSimulation(d3, nodes, edges)
     );
 
     // keep downloadSVG() working
@@ -474,7 +474,7 @@ export default {
     makeTransform(center, edgePos, scale, hovered, selected) {
       const radian = Math.atan2(
         edgePos.target.y - edgePos.source.y,
-        edgePos.target.x - edgePos.source.x,
+        edgePos.target.x - edgePos.source.x
       );
       const degree = (radian * 180.0) / Math.PI;
 
@@ -601,7 +601,7 @@ export default {
 
       // Use object for nodes, array for edges
       this.nodes = Object.fromEntries(
-        inputNodes.map((node) => [node.id, node]),
+        inputNodes.map((node) => [node.id, node])
       );
       this.edges = inputEdges; // <-- Use array for edges
 
@@ -633,7 +633,7 @@ export default {
         Object.defineProperty(
           o,
           new_key,
-          Object.getOwnPropertyDescriptor(o, old_key),
+          Object.getOwnPropertyDescriptor(o, old_key)
         );
         delete o[old_key];
       }
@@ -663,7 +663,7 @@ export default {
       let selectedNode = this.nodes[nodeId];
       selectedNode.meta.active = !selectedNode.meta.active;
       console.log(
-        selectedNode.label + " is active: " + selectedNode.meta.active,
+        selectedNode.label + " is active: " + selectedNode.meta.active
       );
 
       if (selectedNode.meta.active) {
@@ -828,7 +828,7 @@ export default {
       } else {
         // Resume: re-create the simulation with the same force configuration.
         this.layout.createSimulation((d3, nodes, edges) =>
-          this.makeSimulation(d3, nodes, edges),
+          this.makeSimulation(d3, nodes, edges)
         );
         this.physicsEnabled = true;
         this.playPause = "Pause";
@@ -853,7 +853,7 @@ export default {
       }
 
       const url = URL.createObjectURL(
-        new Blob([text], { type: "octet/stream" }),
+        new Blob([text], { type: "octet/stream" })
       );
       const a = document.createElement("a");
       a.href = url;
@@ -904,7 +904,7 @@ export default {
     recreateSimulationPerformance() {
       if (!this.layout) return;
       this.layout.createSimulation((d3, nodes, edges) =>
-        this.makeSimulation(d3, nodes, edges),
+        this.makeSimulation(d3, nodes, edges)
       );
     },
   },

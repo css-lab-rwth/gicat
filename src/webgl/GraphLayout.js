@@ -55,6 +55,11 @@ export class GraphLayout {
     return this.nodeIds.length;
   }
 
+  /**
+   * Looks up the position of a node inside the flat positions array.
+   * @param {string} id The node id.
+   * @returns {number|undefined} The node index, or undefined if unknown.
+   */
   indexOf(id) {
     return this.idToIndex.get(id);
   }
@@ -107,6 +112,12 @@ export class GraphLayout {
     // Pinning happens on move (mirrors v-network-graph's pointermove handler).
   }
 
+  /**
+   * Pins the dragged node to the cursor and nudges the simulation.
+   * @param {string} id The id of the node being dragged.
+   * @param {number} wx Target horizontal position in world coordinates.
+   * @param {number} wy Target vertical position in world coordinates.
+   */
   dragMove(id, wx, wy) {
     const n = this.layoutNodeMap.get(id);
     if (!n) return;
@@ -123,15 +134,22 @@ export class GraphLayout {
     }
   }
 
+  /**
+   * Ends a drag, leaving the node pinned where it was dropped (this mirrors
+   * v-network-graph's positionFixedByDrag option).
+   * @param {string} id The id of the node that was dragged.
+   */
   dragEnd(id) {
-    // positionFixedByDrag: true -> keep the node pinned where it was dropped.
     const n = this.layoutNodeMap.get(id);
     if (!n) return;
     n.fixed = true;
     this.restart();
   }
 
-  /** Alt+click toggles a node between pinned and free. */
+  /**
+   * Toggles a node between pinned and free, used by alt+click.
+   * @param {string} id The id of the node to pin or release.
+   */
   toggleFixed(id) {
     const n = this.layoutNodeMap.get(id);
     if (!n) return;
@@ -147,17 +165,28 @@ export class GraphLayout {
     this.restart();
   }
 
+  /**
+   * Reports whether a node is currently pinned in place.
+   * @param {string} id The node id.
+   * @returns {boolean} True if the node is pinned.
+   */
   isFixed(id) {
     const n = this.layoutNodeMap.get(id);
     return !!(n && n.fixed);
   }
 
+  /**
+   * Reads the current position of a node.
+   * @param {string} id The node id.
+   * @returns {{x:number, y:number}|null} The position, or null if unknown.
+   */
   getPosition(id) {
     const idx = this.idToIndex.get(id);
     if (idx === undefined) return null;
     return { x: this.positions[idx * 2], y: this.positions[idx * 2 + 1] };
   }
 
+  /** Stops the simulation and detaches it, so no ticks survive teardown. */
   destroy() {
     LIVE_LAYOUTS.delete(this);
     if (this.sim) {

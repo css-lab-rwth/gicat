@@ -25,6 +25,7 @@ uniform int u_texW;
 uniform vec2 u_camCenter;
 uniform float u_zoom;
 uniform vec2 u_resolution;
+uniform float u_minFeature; // smallest on-screen size, in CSS pixels
 vec2 fetchPos(int idx){
   int x = idx % u_texW;
   int y = idx / u_texW;
@@ -60,6 +61,8 @@ void main(){
   v_local = local;
   v_half = i_size * 0.5;
   v_radius = min(i_radius, min(v_half.x, v_half.y));
+  // No minimum width here: the fragment shader derives true coverage from the
+  // distance field, so a border under a pixel wide fades instead of breaking up.
   v_strokeW = (i_state > 0.5) ? 6.0 : i_strokeW;
   v_fill = i_fill;
   v_stroke = i_stroke;
@@ -102,14 +105,20 @@ out vec4 v_color;
 void main(){
   vec2 p0 = fetchPos(int(i_src + 0.5));
   vec2 p1 = fetchPos(int(i_tgt + 0.5));
-  float w = (i_state > 0.5) ? 6.0 : i_width;
+  float w0 = (i_state > 0.5) ? 6.0 : i_width;
+  // Below a pixel a line only covers some of the pixels it crosses, so it
+  // renders broken. Widen it to one pixel and drop the opacity by the same
+  // factor instead: the line stays continuous but keeps its original weight,
+  // which is what the browser does with a thin SVG stroke.
+  float w = max(w0, u_minFeature / u_zoom);
+  float cov = w > 0.0 ? min(1.0, w0 / w) : 1.0;
   vec2 d = p1 - p0;
   float len = length(d);
   vec2 dir = len > 0.0 ? d / len : vec2(1.0, 0.0);
   vec2 normal = vec2(-dir.y, dir.x);
   vec2 world = mix(p0, p1, a_edge.x) + normal * (a_edge.y * w);
   gl_Position = worldToClip(world);
-  v_color = i_color;
+  v_color = vec4(i_color.rgb, i_color.a * cov);
 }
 `;
 
@@ -205,6 +214,13 @@ void main(){
 }
 `;
 
+// Samples per CSS pixel along each axis. 2 means the frame is rendered at four
+// times the area and downscaled, which antialiases every element at once.
+const RENDER_SCALE = 2;
+// Nothing is drawn thinner than this on screen; below about a pixel a line only
+// covers some of the pixels it crosses, so a solid edge looks like a dotted one.
+const MIN_FEATURE_PX = 1.2;
+
 const EDGE_LABEL_MARGIN = 20; // matches configs.edge.label.margin
 const WHITE3 = [1, 1, 1];
 const BLACK3 = [0, 0, 0];
@@ -295,22 +311,52 @@ export class WebGLGraphRenderer {
       const loc = getLocations(gl, program, uniforms, attribs);
       return { program, ...loc };
     };
-    const camU = ["u_positions", "u_texW", "u_camCenter", "u_zoom", "u_resolution"];
+    const camU = [
+      "u_positions",
+      "u_texW",
+      "u_camCenter",
+      "u_zoom",
+      "u_resolution",
+      "u_minFeature",
+    ];
     this.progNode = mk(NODE_VS, NODE_FS, camU, [
-      "a_corner", "i_index", "i_offset", "i_size", "i_fill", "i_stroke", "i_strokeW", "i_radius", "i_state",
+      "a_corner",
+      "i_index",
+      "i_offset",
+      "i_size",
+      "i_fill",
+      "i_stroke",
+      "i_strokeW",
+      "i_radius",
+      "i_state",
     ]);
     this.progEdge = mk(EDGE_VS, SOLID_FS, camU, [
-      "a_edge", "i_src", "i_tgt", "i_color", "i_width", "i_state",
+      "a_edge",
+      "i_src",
+      "i_tgt",
+      "i_color",
+      "i_width",
+      "i_state",
     ]);
     this.progMarker = mk(MARKER_VS, SOLID_FS, camU, [
-      "a_tri", "i_src", "i_tgt", "i_color", "i_state",
+      "a_tri",
+      "i_src",
+      "i_tgt",
+      "i_color",
+      "i_state",
     ]);
-    this.progNodeLabel = mk(NODE_LABEL_VS, LABEL_FS, [...camU, "u_atlas"], [
-      "a_corner", "i_index", "i_offset", "i_size", "i_uv", "i_color",
-    ]);
-    this.progEdgeLabel = mk(EDGE_LABEL_VS, LABEL_FS, [...camU, "u_atlas"], [
-      "a_corner", "i_src", "i_tgt", "i_offset", "i_size", "i_uv", "i_color",
-    ]);
+    this.progNodeLabel = mk(
+      NODE_LABEL_VS,
+      LABEL_FS,
+      [...camU, "u_atlas"],
+      ["a_corner", "i_index", "i_offset", "i_size", "i_uv", "i_color"]
+    );
+    this.progEdgeLabel = mk(
+      EDGE_LABEL_VS,
+      LABEL_FS,
+      [...camU, "u_atlas"],
+      ["a_corner", "i_src", "i_tgt", "i_offset", "i_size", "i_uv", "i_color"]
+    );
   }
 
   _initGeometry() {
@@ -319,19 +365,19 @@ export class WebGLGraphRenderer {
     this.quadBuf = createBuffer(
       gl,
       new Float32Array([-0.5, -0.5, 0.5, -0.5, -0.5, 0.5, 0.5, 0.5]),
-      gl.STATIC_DRAW,
+      gl.STATIC_DRAW
     );
     // Edge quad: x in [0,1] along, y in [-0.5,0.5] across.
     this.edgeGeoBuf = createBuffer(
       gl,
       new Float32Array([0, -0.5, 1, -0.5, 0, 0.5, 1, 0.5]),
-      gl.STATIC_DRAW,
+      gl.STATIC_DRAW
     );
     // Direction-marker triangle.
     this.triBuf = createBuffer(
       gl,
       new Float32Array([-5, -5, 5, 0, -5, 5]),
-      gl.STATIC_DRAW,
+      gl.STATIC_DRAW
     );
   }
 
@@ -339,12 +385,31 @@ export class WebGLGraphRenderer {
     const gl = this.gl;
     const b = () => gl.createBuffer();
     this.buf = {
-      nIndex: b(), nOffset: b(), nSize: b(), nFill: b(), nStroke: b(),
-      nStrokeW: b(), nRadius: b(), nState: b(),
-      eSrc: b(), eTgt: b(), eColor: b(), eWidth: b(), eState: b(),
+      nIndex: b(),
+      nOffset: b(),
+      nSize: b(),
+      nFill: b(),
+      nStroke: b(),
+      nStrokeW: b(),
+      nRadius: b(),
+      nState: b(),
+      eSrc: b(),
+      eTgt: b(),
+      eColor: b(),
+      eWidth: b(),
+      eState: b(),
       mColor: b(),
-      nlIndex: b(), nlOffset: b(), nlSize: b(), nlUv: b(), nlColor: b(),
-      elSrc: b(), elTgt: b(), elOffset: b(), elSize: b(), elUv: b(), elColor: b(),
+      nlIndex: b(),
+      nlOffset: b(),
+      nlSize: b(),
+      nlUv: b(),
+      nlColor: b(),
+      elSrc: b(),
+      elTgt: b(),
+      elOffset: b(),
+      elSize: b(),
+      elUv: b(),
+      elColor: b(),
     };
     // CPU-side state arrays (small) re-uploaded wholesale on hover/selection.
     this.nodeStateArr = new Float32Array(0);
@@ -359,14 +424,30 @@ export class WebGLGraphRenderer {
     this.vaoNode = gl.createVertexArray();
     gl.bindVertexArray(this.vaoNode);
     setFloatAttrib(gl, this.progNode.a.a_corner, this.quadBuf, 2);
-    setFloatAttrib(gl, this.progNode.a.i_index, this.buf.nIndex, 1, { divisor: 1 });
-    setFloatAttrib(gl, this.progNode.a.i_offset, this.buf.nOffset, 2, { divisor: 1 });
-    setFloatAttrib(gl, this.progNode.a.i_size, this.buf.nSize, 2, { divisor: 1 });
-    setFloatAttrib(gl, this.progNode.a.i_fill, this.buf.nFill, 4, { divisor: 1 });
-    setFloatAttrib(gl, this.progNode.a.i_stroke, this.buf.nStroke, 4, { divisor: 1 });
-    setFloatAttrib(gl, this.progNode.a.i_strokeW, this.buf.nStrokeW, 1, { divisor: 1 });
-    setFloatAttrib(gl, this.progNode.a.i_radius, this.buf.nRadius, 1, { divisor: 1 });
-    setFloatAttrib(gl, this.progNode.a.i_state, this.buf.nState, 1, { divisor: 1 });
+    setFloatAttrib(gl, this.progNode.a.i_index, this.buf.nIndex, 1, {
+      divisor: 1,
+    });
+    setFloatAttrib(gl, this.progNode.a.i_offset, this.buf.nOffset, 2, {
+      divisor: 1,
+    });
+    setFloatAttrib(gl, this.progNode.a.i_size, this.buf.nSize, 2, {
+      divisor: 1,
+    });
+    setFloatAttrib(gl, this.progNode.a.i_fill, this.buf.nFill, 4, {
+      divisor: 1,
+    });
+    setFloatAttrib(gl, this.progNode.a.i_stroke, this.buf.nStroke, 4, {
+      divisor: 1,
+    });
+    setFloatAttrib(gl, this.progNode.a.i_strokeW, this.buf.nStrokeW, 1, {
+      divisor: 1,
+    });
+    setFloatAttrib(gl, this.progNode.a.i_radius, this.buf.nRadius, 1, {
+      divisor: 1,
+    });
+    setFloatAttrib(gl, this.progNode.a.i_state, this.buf.nState, 1, {
+      divisor: 1,
+    });
 
     // Edge VAO
     this.vaoEdge = gl.createVertexArray();
@@ -374,39 +455,75 @@ export class WebGLGraphRenderer {
     setFloatAttrib(gl, this.progEdge.a.a_edge, this.edgeGeoBuf, 2);
     setFloatAttrib(gl, this.progEdge.a.i_src, this.buf.eSrc, 1, { divisor: 1 });
     setFloatAttrib(gl, this.progEdge.a.i_tgt, this.buf.eTgt, 1, { divisor: 1 });
-    setFloatAttrib(gl, this.progEdge.a.i_color, this.buf.eColor, 4, { divisor: 1 });
-    setFloatAttrib(gl, this.progEdge.a.i_width, this.buf.eWidth, 1, { divisor: 1 });
-    setFloatAttrib(gl, this.progEdge.a.i_state, this.buf.eState, 1, { divisor: 1 });
+    setFloatAttrib(gl, this.progEdge.a.i_color, this.buf.eColor, 4, {
+      divisor: 1,
+    });
+    setFloatAttrib(gl, this.progEdge.a.i_width, this.buf.eWidth, 1, {
+      divisor: 1,
+    });
+    setFloatAttrib(gl, this.progEdge.a.i_state, this.buf.eState, 1, {
+      divisor: 1,
+    });
 
     // Marker VAO (reuses edge src/tgt/state buffers)
     this.vaoMarker = gl.createVertexArray();
     gl.bindVertexArray(this.vaoMarker);
     setFloatAttrib(gl, this.progMarker.a.a_tri, this.triBuf, 2);
-    setFloatAttrib(gl, this.progMarker.a.i_src, this.buf.eSrc, 1, { divisor: 1 });
-    setFloatAttrib(gl, this.progMarker.a.i_tgt, this.buf.eTgt, 1, { divisor: 1 });
-    setFloatAttrib(gl, this.progMarker.a.i_color, this.buf.mColor, 4, { divisor: 1 });
-    setFloatAttrib(gl, this.progMarker.a.i_state, this.buf.eState, 1, { divisor: 1 });
+    setFloatAttrib(gl, this.progMarker.a.i_src, this.buf.eSrc, 1, {
+      divisor: 1,
+    });
+    setFloatAttrib(gl, this.progMarker.a.i_tgt, this.buf.eTgt, 1, {
+      divisor: 1,
+    });
+    setFloatAttrib(gl, this.progMarker.a.i_color, this.buf.mColor, 4, {
+      divisor: 1,
+    });
+    setFloatAttrib(gl, this.progMarker.a.i_state, this.buf.eState, 1, {
+      divisor: 1,
+    });
 
     // Node label VAO
     this.vaoNodeLabel = gl.createVertexArray();
     gl.bindVertexArray(this.vaoNodeLabel);
     setFloatAttrib(gl, this.progNodeLabel.a.a_corner, this.quadBuf, 2);
-    setFloatAttrib(gl, this.progNodeLabel.a.i_index, this.buf.nlIndex, 1, { divisor: 1 });
-    setFloatAttrib(gl, this.progNodeLabel.a.i_offset, this.buf.nlOffset, 2, { divisor: 1 });
-    setFloatAttrib(gl, this.progNodeLabel.a.i_size, this.buf.nlSize, 2, { divisor: 1 });
-    setFloatAttrib(gl, this.progNodeLabel.a.i_uv, this.buf.nlUv, 4, { divisor: 1 });
-    setFloatAttrib(gl, this.progNodeLabel.a.i_color, this.buf.nlColor, 3, { divisor: 1 });
+    setFloatAttrib(gl, this.progNodeLabel.a.i_index, this.buf.nlIndex, 1, {
+      divisor: 1,
+    });
+    setFloatAttrib(gl, this.progNodeLabel.a.i_offset, this.buf.nlOffset, 2, {
+      divisor: 1,
+    });
+    setFloatAttrib(gl, this.progNodeLabel.a.i_size, this.buf.nlSize, 2, {
+      divisor: 1,
+    });
+    setFloatAttrib(gl, this.progNodeLabel.a.i_uv, this.buf.nlUv, 4, {
+      divisor: 1,
+    });
+    setFloatAttrib(gl, this.progNodeLabel.a.i_color, this.buf.nlColor, 3, {
+      divisor: 1,
+    });
 
     // Edge label VAO
     this.vaoEdgeLabel = gl.createVertexArray();
     gl.bindVertexArray(this.vaoEdgeLabel);
     setFloatAttrib(gl, this.progEdgeLabel.a.a_corner, this.quadBuf, 2);
-    setFloatAttrib(gl, this.progEdgeLabel.a.i_src, this.buf.elSrc, 1, { divisor: 1 });
-    setFloatAttrib(gl, this.progEdgeLabel.a.i_tgt, this.buf.elTgt, 1, { divisor: 1 });
-    setFloatAttrib(gl, this.progEdgeLabel.a.i_offset, this.buf.elOffset, 2, { divisor: 1 });
-    setFloatAttrib(gl, this.progEdgeLabel.a.i_size, this.buf.elSize, 2, { divisor: 1 });
-    setFloatAttrib(gl, this.progEdgeLabel.a.i_uv, this.buf.elUv, 4, { divisor: 1 });
-    setFloatAttrib(gl, this.progEdgeLabel.a.i_color, this.buf.elColor, 3, { divisor: 1 });
+    setFloatAttrib(gl, this.progEdgeLabel.a.i_src, this.buf.elSrc, 1, {
+      divisor: 1,
+    });
+    setFloatAttrib(gl, this.progEdgeLabel.a.i_tgt, this.buf.elTgt, 1, {
+      divisor: 1,
+    });
+    setFloatAttrib(gl, this.progEdgeLabel.a.i_offset, this.buf.elOffset, 2, {
+      divisor: 1,
+    });
+    setFloatAttrib(gl, this.progEdgeLabel.a.i_size, this.buf.elSize, 2, {
+      divisor: 1,
+    });
+    setFloatAttrib(gl, this.progEdgeLabel.a.i_uv, this.buf.elUv, 4, {
+      divisor: 1,
+    });
+    setFloatAttrib(gl, this.progEdgeLabel.a.i_color, this.buf.elColor, 3, {
+      divisor: 1,
+    });
 
     gl.bindVertexArray(null);
     void F;
@@ -420,7 +537,17 @@ export class WebGLGraphRenderer {
     if (this.posTex) gl.deleteTexture(this.posTex);
     this.posTex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, this.posTex);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG32F, this.posTexW, this.posTexH, 0, gl.RG, gl.FLOAT, null);
+    gl.texImage2D(
+      gl.TEXTURE_2D,
+      0,
+      gl.RG32F,
+      this.posTexW,
+      this.posTexH,
+      0,
+      gl.RG,
+      gl.FLOAT,
+      null
+    );
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -435,14 +562,19 @@ export class WebGLGraphRenderer {
       "white-space:nowrap;display:none;transform:translate(-50%,-130%);max-width:480px;" +
       "overflow:hidden;text-overflow:ellipsis;";
     const parent = this.canvas.parentElement || document.body;
-    if (getComputedStyle(parent).position === "static") parent.style.position = "relative";
+    if (getComputedStyle(parent).position === "static")
+      parent.style.position = "relative";
     parent.appendChild(el);
     this.tooltipEl = el;
   }
 
   // ---- public API --------------------------------------------------------
 
-  /** Wire the layout that owns node ids and the live positions array. */
+  /**
+   * Wires the layout that owns the node ids and the live positions array.
+   * Also sizes the GPU positions texture and the per-node/per-edge state arrays.
+   * @param {GraphLayout} layout The layout driving the node positions.
+   */
   attachLayout(layout) {
     this.layout = layout;
     layout.onPositionsChanged = () => this.markPositionsDirty();
@@ -452,13 +584,22 @@ export class WebGLGraphRenderer {
     this._autoFit = true;
   }
 
+  /**
+   * Flags the positions array as changed so the next frame re-uploads it.
+   * Called on every simulation tick, so it must stay cheap.
+   */
   markPositionsDirty() {
     this._posDirty = true;
     this._requestFrame();
   }
 
-  // Rebuild visual + label buffers from descriptors (on filter/color/hidden
-  // changes, not per tick). edgeDescs carry sourceId/targetId, resolved here.
+  /**
+   * Rebuilds the visual and label buffers from the given descriptors. This runs
+   * on filter, colour and visibility changes, not on every tick.
+   * @param {Array<Object>} nodeDescs One descriptor per node, in layout order.
+   * @param {Array<Object>} edgeDescs One descriptor per edge; the sourceId and
+   * targetId they carry are resolved to node indices here.
+   */
   updateVisuals(nodeDescs, edgeDescs) {
     this.nodeDescs = nodeDescs;
     this.edgeDescs = edgeDescs;
@@ -470,6 +611,11 @@ export class WebGLGraphRenderer {
     this._requestFrame();
   }
 
+  /**
+   * Replaces the current selection. Unknown ids are ignored, so the caller can
+   * pass the component's selectedNodes list unfiltered.
+   * @param {Array<string>} selectedNodeIds Ids of the nodes to mark selected.
+   */
   setSelection(selectedNodeIds) {
     const idx = this.layout ? this.layout.idToIndex : new Map();
     this.selectedNodeIdx = new Set();
@@ -481,8 +627,13 @@ export class WebGLGraphRenderer {
     this._requestFrame();
   }
 
-  // Recolor just the given nodes' border (stroke) — cheap update for the color
-  // picker (no descriptor rebuild / label re-layout).
+  /**
+   * Recolours only the border (stroke) of the given nodes. This is the cheap
+   * path used by the colour picker: it writes straight into the stroke buffer
+   * instead of rebuilding the descriptors and re-laying out the labels.
+   * @param {Array<number>} indices Node indices to recolour.
+   * @param {Array<number>} rgba Colour as [r, g, b, a] in the range 0..1.
+   */
   setNodeStrokeColor(indices, rgba) {
     if (!this.gl || !indices || !indices.length) return;
     const gl = this.gl;
@@ -529,8 +680,14 @@ export class WebGLGraphRenderer {
       off[i * 2 + 1] = d.offsetY;
       size[i * 2] = visible ? d.w : 0;
       size[i * 2 + 1] = visible ? d.h : 0;
-      fill[i * 4] = d.fill[0]; fill[i * 4 + 1] = d.fill[1]; fill[i * 4 + 2] = d.fill[2]; fill[i * 4 + 3] = d.fill[3];
-      stroke[i * 4] = d.stroke[0]; stroke[i * 4 + 1] = d.stroke[1]; stroke[i * 4 + 2] = d.stroke[2]; stroke[i * 4 + 3] = d.stroke[3];
+      fill[i * 4] = d.fill[0];
+      fill[i * 4 + 1] = d.fill[1];
+      fill[i * 4 + 2] = d.fill[2];
+      fill[i * 4 + 3] = d.fill[3];
+      stroke[i * 4] = d.stroke[0];
+      stroke[i * 4 + 1] = d.stroke[1];
+      stroke[i * 4 + 2] = d.stroke[2];
+      stroke[i * 4 + 3] = d.stroke[3];
       sw[i] = d.strokeW;
       rad[i] = d.radius;
     }
@@ -560,11 +717,15 @@ export class WebGLGraphRenderer {
       src[j] = si === undefined ? 0 : si;
       tgt[j] = ti === undefined ? 0 : ti;
       const lv = d.lineVisible && si !== undefined && ti !== undefined;
-      color[j * 4] = d.color[0]; color[j * 4 + 1] = d.color[1]; color[j * 4 + 2] = d.color[2];
+      color[j * 4] = d.color[0];
+      color[j * 4 + 1] = d.color[1];
+      color[j * 4 + 2] = d.color[2];
       color[j * 4 + 3] = lv ? d.color[3] : 0;
       width[j] = lv ? d.width : 0;
       const mv = d.markerVisible && si !== undefined && ti !== undefined;
-      mColor[j * 4] = d.markerColor[0]; mColor[j * 4 + 1] = d.markerColor[1]; mColor[j * 4 + 2] = d.markerColor[2];
+      mColor[j * 4] = d.markerColor[0];
+      mColor[j * 4 + 1] = d.markerColor[1];
+      mColor[j * 4 + 2] = d.markerColor[2];
       mColor[j * 4 + 3] = mv ? d.markerColor[3] : 0;
     }
     this._setBuf(this.buf.eSrc, src);
@@ -583,13 +744,20 @@ export class WebGLGraphRenderer {
       const d = nodeDescs[i];
       if (!d.visible || !d.label) continue;
       const weight = d.bold ? "bold" : "normal";
-      this._layoutLabel(d.label, d.fontPx, weight, d.labelAnchorX, 0, (cx, cy, w, h, uv) => {
-        nl.index.push(i);
-        nl.off.push(cx, cy);
-        nl.size.push(w, h);
-        nl.uv.push(uv[0], uv[1], uv[2], uv[3]);
-        nl.color.push(WHITE3[0], WHITE3[1], WHITE3[2]);
-      });
+      this._layoutLabel(
+        d.label,
+        d.fontPx,
+        weight,
+        d.labelAnchorX,
+        0,
+        (cx, cy, w, h, uv) => {
+          nl.index.push(i);
+          nl.off.push(cx, cy);
+          nl.size.push(w, h);
+          nl.uv.push(uv[0], uv[1], uv[2], uv[3]);
+          nl.color.push(WHITE3[0], WHITE3[1], WHITE3[2]);
+        }
+      );
     }
     this.nodeLabelCount = nl.index.length;
     this._setBuf(this.buf.nlIndex, new Float32Array(nl.index));
@@ -609,14 +777,21 @@ export class WebGLGraphRenderer {
       const fontPx = d.labelFontPx || 30;
       const fm = this.atlas.fontMetrics(fontPx, "normal");
       const anchorY = -(EDGE_LABEL_MARGIN + fm.lineHeight * 0.5);
-      this._layoutLabel(d.label, fontPx, "normal", 0, anchorY, (cx, cy, w, h, uv) => {
-        el.src.push(si);
-        el.tgt.push(ti);
-        el.off.push(cx, cy);
-        el.size.push(w, h);
-        el.uv.push(uv[0], uv[1], uv[2], uv[3]);
-        el.color.push(BLACK3[0], BLACK3[1], BLACK3[2]);
-      });
+      this._layoutLabel(
+        d.label,
+        fontPx,
+        "normal",
+        0,
+        anchorY,
+        (cx, cy, w, h, uv) => {
+          el.src.push(si);
+          el.tgt.push(ti);
+          el.off.push(cx, cy);
+          el.size.push(w, h);
+          el.uv.push(uv[0], uv[1], uv[2], uv[3]);
+          el.color.push(BLACK3[0], BLACK3[1], BLACK3[2]);
+        }
+      );
     }
     this.edgeLabelCount = el.src.length;
     this._setBuf(this.buf.elSrc, new Float32Array(el.src));
@@ -673,6 +848,12 @@ export class WebGLGraphRenderer {
     return this._cssH || this.canvas.clientHeight || 1;
   }
 
+  /**
+   * Converts a point from CSS pixels on the canvas to graph (world) coordinates.
+   * @param {number} sx Horizontal position in CSS pixels.
+   * @param {number} sy Vertical position in CSS pixels.
+   * @returns {{x:number, y:number}} The same point in world coordinates.
+   */
   screenToWorld(sx, sy) {
     return {
       x: (sx - this.cssWidth / 2) / this.cam.k + this.cam.x,
@@ -680,6 +861,12 @@ export class WebGLGraphRenderer {
     };
   }
 
+  /**
+   * Converts a point from graph (world) coordinates to CSS pixels on the canvas.
+   * @param {number} wx Horizontal position in world coordinates.
+   * @param {number} wy Vertical position in world coordinates.
+   * @returns {{x:number, y:number}} The same point in CSS pixels.
+   */
   worldToScreen(wx, wy) {
     return {
       x: (wx - this.cam.x) * this.cam.k + this.cssWidth / 2,
@@ -692,8 +879,13 @@ export class WebGLGraphRenderer {
   _fitView() {
     const pos = this.layout && this.layout.positions;
     if (!pos || this.nodeCount === 0) return;
-    let sumX = 0, sumY = 0, n = 0;
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    let sumX = 0,
+      sumY = 0,
+      n = 0;
+    let minX = Infinity,
+      minY = Infinity,
+      maxX = -Infinity,
+      maxY = -Infinity;
     for (let i = 0; i < this.nodeCount; i++) {
       const d = this.nodeDescs[i];
       if (!d || !d.visible) continue;
@@ -746,15 +938,28 @@ export class WebGLGraphRenderer {
 
   _onPointerDown(e) {
     if (e.button !== 0) return; // left button only; right -> contextmenu
-    try { this.canvas.setPointerCapture(e.pointerId); } catch (err) { void err; }
+    try {
+      this.canvas.setPointerCapture(e.pointerId);
+    } catch (err) {
+      void err;
+    }
     const { x, y } = this._cssXY(e);
-    this._ptr = { id: e.pointerId, startX: x, startY: y, lastX: x, lastY: y, moved: false, alt: e.altKey };
+    this._ptr = {
+      id: e.pointerId,
+      startX: x,
+      startY: y,
+      lastX: x,
+      lastY: y,
+      moved: false,
+      alt: e.altKey,
+    };
     const idx = this._pickNode(x, y);
     if (idx >= 0) {
       this._ptr.mode = "drag";
       this._ptr.nodeIdx = idx;
       this._ptr.nodeId = this.layout.nodeIds[idx];
-      if (this.callbacks.onNodeDragStart) this.callbacks.onNodeDragStart(this._ptr.nodeId);
+      if (this.callbacks.onNodeDragStart)
+        this.callbacks.onNodeDragStart(this._ptr.nodeId);
     } else {
       this._ptr.mode = "pan";
     }
@@ -765,13 +970,17 @@ export class WebGLGraphRenderer {
     if (this._ptr) {
       const dx = x - this._ptr.lastX;
       const dy = y - this._ptr.lastY;
-      if (Math.abs(x - this._ptr.startX) > 3 || Math.abs(y - this._ptr.startY) > 3) {
+      if (
+        Math.abs(x - this._ptr.startX) > 3 ||
+        Math.abs(y - this._ptr.startY) > 3
+      ) {
         this._ptr.moved = true;
         this._autoFit = false; // user is panning/dragging -> stop auto-framing
       }
       if (this._ptr.mode === "drag") {
         const w = this.screenToWorld(x, y);
-        if (this.callbacks.onNodeDragMove) this.callbacks.onNodeDragMove(this._ptr.nodeId, w.x, w.y);
+        if (this.callbacks.onNodeDragMove)
+          this.callbacks.onNodeDragMove(this._ptr.nodeId, w.x, w.y);
       } else {
         this.cam.x -= dx / this.cam.k;
         this.cam.y -= dy / this.cam.k;
@@ -787,7 +996,11 @@ export class WebGLGraphRenderer {
   _onPointerUp(e) {
     if (!this._ptr || e.pointerId !== this._ptr.id) return;
     const { moved, mode, nodeId, alt } = this._ptr;
-    try { this.canvas.releasePointerCapture(e.pointerId); } catch (err) { void err; }
+    try {
+      this.canvas.releasePointerCapture(e.pointerId);
+    } catch (err) {
+      void err;
+    }
     if (mode === "drag") {
       if (moved) {
         if (this.callbacks.onNodeDragEnd) this.callbacks.onNodeDragEnd(nodeId);
@@ -875,7 +1088,8 @@ export class WebGLGraphRenderer {
       const d = this.nodeDescs[i];
       const cx = pos[i * 2] + d.offsetX;
       const cy = pos[i * 2 + 1] + d.offsetY;
-      if (Math.abs(w.x - cx) <= d.w / 2 && Math.abs(w.y - cy) <= d.h / 2) return i;
+      if (Math.abs(w.x - cx) <= d.w / 2 && Math.abs(w.y - cy) <= d.h / 2)
+        return i;
     }
     return -1;
   }
@@ -895,7 +1109,14 @@ export class WebGLGraphRenderer {
       const si = idx.get(d.sourceId);
       const ti = idx.get(d.targetId);
       if (si === undefined || ti === undefined) continue;
-      const dist = pointSegDist(w.x, w.y, pos[si * 2], pos[si * 2 + 1], pos[ti * 2], pos[ti * 2 + 1]);
+      const dist = pointSegDist(
+        w.x,
+        w.y,
+        pos[si * 2],
+        pos[si * 2 + 1],
+        pos[ti * 2],
+        pos[ti * 2 + 1]
+      );
       if (dist < bestDist) {
         bestDist = dist;
         best = j;
@@ -908,7 +1129,8 @@ export class WebGLGraphRenderer {
     const nodeIdx = this._pickNode(sx, sy);
     let edgeIdx = -1;
     if (nodeIdx < 0) edgeIdx = this._pickEdge(sx, sy);
-    const changed = nodeIdx !== this.hoverNodeIdx || edgeIdx !== this.hoverEdgeIdx;
+    const changed =
+      nodeIdx !== this.hoverNodeIdx || edgeIdx !== this.hoverEdgeIdx;
     this.hoverNodeIdx = nodeIdx;
     this.hoverEdgeIdx = edgeIdx;
     this.canvas.style.cursor = nodeIdx >= 0 ? "pointer" : "default";
@@ -961,10 +1183,22 @@ export class WebGLGraphRenderer {
   _uploadPositions() {
     const pos = this.layout && this.layout.positions;
     if (!pos) return;
-    this.posTexData.set(pos.subarray(0, Math.min(pos.length, this.posTexData.length)));
+    this.posTexData.set(
+      pos.subarray(0, Math.min(pos.length, this.posTexData.length))
+    );
     const gl = this.gl;
     gl.bindTexture(gl.TEXTURE_2D, this.posTex);
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.posTexW, this.posTexH, gl.RG, gl.FLOAT, this.posTexData);
+    gl.texSubImage2D(
+      gl.TEXTURE_2D,
+      0,
+      0,
+      0,
+      this.posTexW,
+      this.posTexH,
+      gl.RG,
+      gl.FLOAT,
+      this.posTexData
+    );
     this._posDirty = false;
     this._pickDirty = true;
   }
@@ -976,6 +1210,7 @@ export class WebGLGraphRenderer {
     gl.uniform2f(prog.u.u_camCenter, this.cam.x, this.cam.y);
     gl.uniform1f(prog.u.u_zoom, this.cam.k);
     gl.uniform2f(prog.u.u_resolution, this.cssWidth, this.cssHeight);
+    gl.uniform1f(prog.u.u_minFeature, MIN_FEATURE_PX);
   }
 
   _frame() {
@@ -993,6 +1228,7 @@ export class WebGLGraphRenderer {
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.posTex);
     gl.activeTexture(gl.TEXTURE1);
+    this.atlas.ensureMips();
     gl.bindTexture(gl.TEXTURE_2D, this.atlas.texture);
 
     // Edges + markers (straight-alpha blend), under nodes.
@@ -1043,14 +1279,31 @@ export class WebGLGraphRenderer {
 
   // ---- resize ------------------------------------------------------------
 
+  /**
+   * Matches the drawing buffer to the canvas' current size on screen. Call this
+   * whenever the canvas or the window changes size.
+   */
   resize() {
-    const dpr = window.devicePixelRatio || 1;
+    // Render above the display resolution and let the browser scale the result
+    // down: that averaging is what keeps thin lines and small text clean when
+    // the graph is zoomed out. Monitors report a ratio of 1, so this is where
+    // the quality difference between a laptop and an external screen came from.
+    // The projection uses CSS pixels (see worldToClip), so raising this only
+    // adds samples — nothing moves and hit-testing is unaffected.
+    const dpr = Math.min(
+      Math.max(window.devicePixelRatio || 1, RENDER_SCALE),
+      RENDER_SCALE
+    );
     // Fill from the canvas top to the viewport bottom so the height:100% chain
     // can't make the canvas taller than the window. Don't clear style.height
     // first (rect.top doesn't depend on it; clearing would loop the observer).
     const rect = this.canvas.getBoundingClientRect();
     const parent = this.canvas.parentElement;
-    let cssW = this.canvas.clientWidth || (parent && parent.clientWidth) || window.innerWidth || 1;
+    let cssW =
+      this.canvas.clientWidth ||
+      (parent && parent.clientWidth) ||
+      window.innerWidth ||
+      1;
     let cssH = Math.floor((window.innerHeight || 600) - rect.top - 2);
     if (!cssH || cssH < 60) {
       cssH = Math.max(60, this.canvas.clientHeight || 400);
@@ -1068,6 +1321,10 @@ export class WebGLGraphRenderer {
     this._requestFrame();
   }
 
+  /**
+   * Starts watching the canvas' container so the drawing buffer follows any
+   * layout change. The observer is released again by destroy().
+   */
   observeResize() {
     if (typeof ResizeObserver === "undefined") return;
     // Defer resize to a rAF (coalesced) and observe the container, to avoid the
@@ -1085,13 +1342,21 @@ export class WebGLGraphRenderer {
 
   // ---- SVG export --------------------------------------------------------
 
-  // Reconstruct the current view as SVG text (for downloadSVG/exportAsSvgText).
+  /**
+   * Reconstructs the current view as SVG markup, used by the download button.
+   * The SVG is built from the same descriptors the renderer draws, so the file
+   * matches what is on screen.
+   * @returns {string} The graph as a standalone SVG document.
+   */
   exportSvg() {
     const pos = this.layout && this.layout.positions;
     if (!pos) return "<svg xmlns='http://www.w3.org/2000/svg'></svg>";
     const idx = this.layout.idToIndex;
     const parts = [];
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    let minX = Infinity,
+      minY = Infinity,
+      maxX = -Infinity,
+      maxY = -Infinity;
     const expand = (x, y) => {
       if (x < minX) minX = x;
       if (x > maxX) maxX = x;
@@ -1107,25 +1372,40 @@ export class WebGLGraphRenderer {
       const si = idx.get(d.sourceId);
       const ti = idx.get(d.targetId);
       if (si === undefined || ti === undefined) continue;
-      const x1 = pos[si * 2], y1 = pos[si * 2 + 1];
-      const x2 = pos[ti * 2], y2 = pos[ti * 2 + 1];
+      const x1 = pos[si * 2],
+        y1 = pos[si * 2 + 1];
+      const x2 = pos[ti * 2],
+        y2 = pos[ti * 2 + 1];
       const sel = this.selectedEdgeIdx.has(j);
       const wWidth = sel ? 6 : d.width;
-      expand(x1, y1); expand(x2, y2);
+      expand(x1, y1);
+      expand(x2, y2);
       edgeSvg.push(
-        `<line x1="${f(x1)}" y1="${f(y1)}" x2="${f(x2)}" y2="${f(y2)}" stroke="${rgbToHex(d.color)}" stroke-width="${wWidth}"/>`,
+        `<line x1="${f(x1)}" y1="${f(y1)}" x2="${f(x2)}" y2="${f(
+          y2
+        )}" stroke="${rgbToHex(d.color)}" stroke-width="${wWidth}"/>`
       );
       if (d.markerVisible) {
-        const cx = (x1 + x2) / 2, cy = (y1 + y2) / 2;
+        const cx = (x1 + x2) / 2,
+          cy = (y1 + y2) / 2;
         const deg = (Math.atan2(y2 - y1, x2 - x1) * 180) / Math.PI;
         edgeSvg.push(
-          `<path d="M-5 -5 L5 0 L-5 5 Z" transform="translate(${f(cx)} ${f(cy)}) scale(${sel ? 3.5 : 2.5}) rotate(${f(deg)})" fill="${rgbToHex(d.markerColor)}"/>`,
+          `<path d="M-5 -5 L5 0 L-5 5 Z" transform="translate(${f(cx)} ${f(
+            cy
+          )}) scale(${sel ? 3.5 : 2.5}) rotate(${f(deg)})" fill="${rgbToHex(
+            d.markerColor
+          )}"/>`
         );
       }
       if (d.labelVisible && d.label) {
-        const cx = (x1 + x2) / 2, cy = (y1 + y2) / 2;
+        const cx = (x1 + x2) / 2,
+          cy = (y1 + y2) / 2;
         edgeSvg.push(
-          `<text x="${f(cx)}" y="${f(cy - EDGE_LABEL_MARGIN)}" font-size="${d.labelFontPx || 30}" font-family="Arial, sans-serif" text-anchor="middle" fill="#000000">${esc(d.label)}</text>`,
+          `<text x="${f(cx)}" y="${f(cy - EDGE_LABEL_MARGIN)}" font-size="${
+            d.labelFontPx || 30
+          }" font-family="Arial, sans-serif" text-anchor="middle" fill="#000000">${esc(
+            d.label
+          )}</text>`
         );
       }
     }
@@ -1140,29 +1420,51 @@ export class WebGLGraphRenderer {
       const x = cx - d.w / 2;
       const y = cy - d.h / 2;
       const sw = this.selectedNodeIdx.has(i) ? 6 : d.strokeW;
-      expand(x, y); expand(x + d.w, y + d.h);
+      expand(x, y);
+      expand(x + d.w, y + d.h);
       nodeSvg.push(
-        `<rect x="${f(x)}" y="${f(y)}" width="${f(d.w)}" height="${f(d.h)}" rx="${d.radius}" fill="${rgbToHex(d.fill)}" stroke="${rgbToHex(d.stroke)}" stroke-width="${sw}"/>`,
+        `<rect x="${f(x)}" y="${f(y)}" width="${f(d.w)}" height="${f(
+          d.h
+        )}" rx="${d.radius}" fill="${rgbToHex(d.fill)}" stroke="${rgbToHex(
+          d.stroke
+        )}" stroke-width="${sw}"/>`
       );
       if (d.label) {
         const lx = pos[i * 2] + d.labelAnchorX;
         const ly = pos[i * 2 + 1];
         nodeSvg.push(
-          `<text x="${f(lx)}" y="${f(ly)}" font-size="${d.fontPx}" font-family="Arial, sans-serif" font-weight="${d.bold ? "bold" : "normal"}" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">${esc(d.label)}<title>${esc(d.tooltip || d.label)}</title></text>`,
+          `<text x="${f(lx)}" y="${f(ly)}" font-size="${
+            d.fontPx
+          }" font-family="Arial, sans-serif" font-weight="${
+            d.bold ? "bold" : "normal"
+          }" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">${esc(
+            d.label
+          )}<title>${esc(d.tooltip || d.label)}</title></text>`
         );
       }
     }
 
     if (!isFinite(minX)) {
-      minX = 0; minY = 0; maxX = 1; maxY = 1;
+      minX = 0;
+      minY = 0;
+      maxX = 1;
+      maxY = 1;
     }
     const pad = 50;
-    const vbX = minX - pad, vbY = minY - pad;
-    const vbW = maxX - minX + pad * 2, vbH = maxY - minY + pad * 2;
+    const vbX = minX - pad,
+      vbY = minY - pad;
+    const vbW = maxX - minX + pad * 2,
+      vbH = maxY - minY + pad * 2;
     parts.push(
-      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${f(vbX)} ${f(vbY)} ${f(vbW)} ${f(vbH)}">`,
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${f(vbX)} ${f(vbY)} ${f(
+        vbW
+      )} ${f(vbH)}">`
     );
-    parts.push(`<rect x="${f(vbX)}" y="${f(vbY)}" width="${f(vbW)}" height="${f(vbH)}" fill="#ffffff"/>`);
+    parts.push(
+      `<rect x="${f(vbX)}" y="${f(vbY)}" width="${f(vbW)}" height="${f(
+        vbH
+      )}" fill="#ffffff"/>`
+    );
     parts.push(edgeSvg.join(""));
     parts.push(nodeSvg.join(""));
     parts.push("</svg>");
@@ -1171,6 +1473,10 @@ export class WebGLGraphRenderer {
 
   // ---- teardown ----------------------------------------------------------
 
+  /**
+   * Releases the GPU resources, event listeners and observers held by this
+   * renderer. Safe to call more than once.
+   */
   destroy() {
     if (this._destroyed) return; // idempotent
     this._destroyed = true;

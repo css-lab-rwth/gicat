@@ -124,7 +124,8 @@ export function parseColor(input, out = [0, 0, 0, 1]) {
       out[0] = clamp01(input.r / 255);
       out[1] = clamp01(input.g / 255);
       out[2] = clamp01(input.b / 255);
-      out[3] = input.a == null ? 1 : clamp01(input.a > 1 ? input.a / 255 : input.a);
+      out[3] =
+        input.a == null ? 1 : clamp01(input.a > 1 ? input.a / 255 : input.a);
       return out;
     }
     return parseColor(String(input), out);
