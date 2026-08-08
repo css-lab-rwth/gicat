@@ -102,6 +102,7 @@ in vec4 i_color;
 in float i_width;
 in float i_state;
 out vec4 v_color;
+out float v_across;   // -0.5 at one edge of the line, +0.5 at the other
 void main(){
   vec2 p0 = fetchPos(int(i_src + 0.5));
   vec2 p1 = fetchPos(int(i_tgt + 0.5));
@@ -119,6 +120,24 @@ void main(){
   vec2 world = mix(p0, p1, a_edge.x) + normal * (a_edge.y * w);
   gl_Position = worldToClip(world);
   v_color = vec4(i_color.rgb, i_color.a * cov);
+  v_across = a_edge.y;
+}
+`;
+
+// Edges need their own antialiasing: multisampling barely helps a long thin
+// diagonal, which is what made the lines look stepped. Coverage is taken across
+// the width of the quad, the same way the node shader softens its outline.
+const EDGE_FS = `#version 300 es
+precision highp float;
+in vec4 v_color;
+in float v_across;
+out vec4 outColor;
+void main(){
+  float aa = max(fwidth(v_across), 1e-5);
+  float cov = 1.0 - smoothstep(0.5 - aa, 0.5 + aa, abs(v_across));
+  float a = v_color.a * cov;
+  if (a < 0.003) discard;
+  outColor = vec4(v_color.rgb, a);
 }
 `;
 
@@ -330,7 +349,7 @@ export class WebGLGraphRenderer {
       "i_radius",
       "i_state",
     ]);
-    this.progEdge = mk(EDGE_VS, SOLID_FS, camU, [
+    this.progEdge = mk(EDGE_VS, EDGE_FS, camU, [
       "a_edge",
       "i_src",
       "i_tgt",
@@ -623,6 +642,18 @@ export class WebGLGraphRenderer {
       const i = idx.get(id);
       if (i !== undefined) this.selectedNodeIdx.add(i);
     }
+    this._applyStateArrays();
+    this._requestFrame();
+  }
+
+  /**
+   * Replaces the set of highlighted edges. Indices match the edge descriptors
+   * passed to updateVisuals, which are in the same order as the component's
+   * edge list.
+   * @param {Array<number>} selectedEdgeIndices Indices of the edges to highlight.
+   */
+  setEdgeSelection(selectedEdgeIndices) {
+    this.selectedEdgeIdx = new Set(selectedEdgeIndices);
     this._applyStateArrays();
     this._requestFrame();
   }
@@ -1007,8 +1038,16 @@ export class WebGLGraphRenderer {
       } else if (this.callbacks.onNodeClick) {
         this.callbacks.onNodeClick(nodeId, { altKey: alt });
       }
-    } else if (!moved && this.callbacks.onBackgroundClick) {
-      this.callbacks.onBackgroundClick();
+    } else if (!moved) {
+      // A click that missed every node may still have landed on an edge, so
+      // test for one before treating it as a click on the background.
+      const p = this._cssXY(e);
+      const edgeIdx = this._pickEdge(p.x, p.y);
+      if (edgeIdx >= 0 && this.callbacks.onEdgeClick) {
+        this.callbacks.onEdgeClick(edgeIdx);
+      } else if (this.callbacks.onBackgroundClick) {
+        this.callbacks.onBackgroundClick();
+      }
     }
     this._ptr = null;
   }
@@ -1400,8 +1439,19 @@ export class WebGLGraphRenderer {
       if (d.labelVisible && d.label) {
         const cx = (x1 + x2) / 2,
           cy = (y1 + y2) / 2;
+        // Match EDGE_LABEL_VS: the label runs along the edge and is flipped
+        // when the edge points left, so the text is never upside down.
+        let dx = x2 - x1,
+          dy = y2 - y1;
+        if (dx < 0) {
+          dx = -dx;
+          dy = -dy;
+        }
+        const deg = (Math.atan2(dy, dx) * 180) / Math.PI;
         edgeSvg.push(
-          `<text x="${f(cx)}" y="${f(cy - EDGE_LABEL_MARGIN)}" font-size="${
+          `<text transform="translate(${f(cx)} ${f(cy)}) rotate(${f(
+            deg
+          )})" y="${f(-EDGE_LABEL_MARGIN)}" font-size="${
             d.labelFontPx || 30
           }" font-family="Arial, sans-serif" text-anchor="middle" fill="#000000">${esc(
             d.label
@@ -1431,15 +1481,19 @@ export class WebGLGraphRenderer {
       );
       if (d.label) {
         const lx = pos[i * 2] + d.labelAnchorX;
-        const ly = pos[i * 2 + 1];
+        // On screen the glyph cell (ascent + descent) is centred on the node,
+        // so place the baseline the same way here. dominant-baseline="middle"
+        // measures from the x-height instead and lifted the text upwards.
+        const fm = this.atlas.fontMetrics(d.fontPx, d.bold ? "bold" : "normal");
+        const ly = pos[i * 2 + 1] - fm.lineHeight / 2 + fm.ascent;
         nodeSvg.push(
           `<text x="${f(lx)}" y="${f(ly)}" font-size="${
             d.fontPx
           }" font-family="Arial, sans-serif" font-weight="${
             d.bold ? "bold" : "normal"
-          }" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">${esc(
-            d.label
-          )}<title>${esc(d.tooltip || d.label)}</title></text>`
+          }" text-anchor="middle" fill="#ffffff">${esc(d.label)}<title>${esc(
+            d.tooltip || d.label
+          )}</title></text>`
         );
       }
     }

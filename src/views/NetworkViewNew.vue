@@ -299,6 +299,7 @@ export default {
         },
         onNodeDblClick: (id) => this.doubleClick(id),
         onNodeContextMenu: () => this.rightClick(),
+        onEdgeClick: (index) => this.edgeClick(index),
         onBackgroundClick: () => this.clearGraphSelection(),
         onNodeDragStart: (id) => this.layout.dragStart(id),
         onNodeDragMove: (id, x, y) => this.layout.dragMove(id, x, y),
@@ -345,6 +346,7 @@ export default {
       physicsEnabled: true,
       savedLayout: null,
       selectedNodes: [],
+      selectedEdges: [], // indices into this.edges, highlighted on click
       labelColors: {}, // { [label]: color }
     };
   },
@@ -365,12 +367,16 @@ export default {
     clearGraphSelection() {
       console.log("Renderer background clicked, clearing selection");
       this.selectedNodes = [];
+      this.selectedEdges = [];
       this.highlightedDrawerLabels = [];
       // Set isActive to false for all nodes
       Object.values(this.nodes).forEach((node) => {
         if (node.meta) node.meta.active = false;
       });
-      if (this.renderer) this.renderer.setSelection(this.selectedNodes);
+      if (this.renderer) {
+        this.renderer.setSelection(this.selectedNodes);
+        this.renderer.setEdgeSelection(this.selectedEdges);
+      }
     },
 
     // ---- WebGL renderer integration --------------------------------------
@@ -676,6 +682,17 @@ export default {
         this.selectedNodes = this.selectedNodes.filter((id) => id !== nodeId);
       }
       if (this.renderer) this.renderer.setSelection(this.selectedNodes);
+    },
+    // Clicking a line highlights it, clicking it again releases it — the same
+    // toggle behaviour nodes have. The index refers to this.edges.
+    edgeClick(index) {
+      const at = this.selectedEdges.indexOf(index);
+      if (at === -1) {
+        this.selectedEdges.push(index);
+      } else {
+        this.selectedEdges.splice(at, 1);
+      }
+      if (this.renderer) this.renderer.setEdgeSelection(this.selectedEdges);
     },
     highlightNodesByLabel(label) {
       const idx = this.highlightedDrawerLabels.indexOf(label);
