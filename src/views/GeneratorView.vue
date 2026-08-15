@@ -151,32 +151,29 @@
             </v-col>
           </v-row>
           <v-row>
-            <v-col>
+            <v-col cols="12" md="4">
               <v-file-input
                 label="Filter import..."
                 variant="underlined"
                 density="compact"
                 :rules="rules"
-                max-width="480"
                 accept=".json"
                 v-model="importedFilter"
               ></v-file-input>
             </v-col>
           </v-row>
           <v-row>
-            <v-col cols="12" md="4">
+            <v-col cols="12" md="8" class="d-flex justify-space-between">
               <v-btn
+                class="filterAction"
                 @click="importFilter"
                 prepend-icon="$fileExport"
                 :disabled="importedFilter == null"
               >
                 Import
               </v-btn>
-            </v-col>
-          </v-row>
-          <v-row>
-            <v-col cols="12" md="4">
               <v-btn
+                class="filterAction"
                 @click="exportFilter"
                 prepend-icon="$fileExport"
                 :disabled="main.getJson == null"
@@ -223,7 +220,7 @@
               v-model="captureGroup"
             ></v-checkbox>
           </v-col>
-          <v-col cols="12" md="2">
+          <v-col cols="12" md="4">
             <v-text-field
               v-model="quantifier"
               label="Quantifier"
@@ -349,14 +346,19 @@
           </v-col>
         </v-row>
         <v-row>
-          <v-col cols="12" md="4">
+          <v-col cols="12" md="8" class="d-flex justify-space-between">
             <v-btn
+              class="filterAction"
               prepend-icon="$plus"
               @click="addNodeFilter"
               :disabled="main.getJson == null"
               >{{ main.getEditModeScope ? "save" : "Add filter" }}
             </v-btn>
-            <v-btn class="ml-2" prepend-icon="$undo" @click="clearNodeFilter">
+            <v-btn
+              class="filterAction"
+              prepend-icon="$undo"
+              @click="clearNodeFilter"
+            >
               Clear all
             </v-btn>
             <v-dialog v-model="addNodeFilterDialog" width="auto">
@@ -447,15 +449,19 @@
           </v-col>
         </v-row>
         <v-row>
-          <v-col cols="12" md="4">
-            <br />
+          <v-col cols="12" md="8" class="d-flex justify-space-between mt-4">
             <v-btn
+              class="filterAction"
               prepend-icon="$plus"
               @click="addEdgeFilter"
               :disabled="main.getJson == null"
               >{{ main.getEdgeEditModeScope ? "save" : "Add filter" }}
             </v-btn>
-            <v-btn class="ml-2" prepend-icon="$undo" @click="clearEdgeFilter">
+            <v-btn
+              class="filterAction"
+              prepend-icon="$undo"
+              @click="clearEdgeFilter"
+            >
               Clear all
             </v-btn>
             <v-dialog v-model="addEdgeFilterDialog" width="auto">
@@ -1222,6 +1228,18 @@ export default {
 @use "../styles/settings.scss";
 .subItem {
   text-align: left;
+}
+
+// Section headings sit above left-aligned form fields, so centring them (the
+// app-wide default) left them floating away from the content they head.
+h1 {
+  text-align: left;
+}
+
+// Both filter actions share a width so the pair reads as one control group
+// rather than two buttons of accidental sizes.
+.filterAction {
+  min-width: 160px;
 }
 
 #section {
