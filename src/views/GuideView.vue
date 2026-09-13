@@ -292,7 +292,7 @@
       As an example of adding a capture group, we will use the previously
       generated Regex:
       <br /><br />
-      <code>class\s<b>([A-Za-z]+)</b>\\(<b>(.*)</b>\\)\\:</code>
+      <code>/^\s*class\s+([A-Za-z_]\w*)\s*(?:\(([^)]*)\))?\s*:/gm</code>
       <br />
     </p>
     <br />
