@@ -13,37 +13,91 @@ let matchAll = require("string.prototype.matchall");
  * @param {Object} filter The node filter Object.
  * @returns After all eligible file-nodes were processed.
  */
+const NOTEBOOK_EXTENSION = ".ipynb";
+
+/**
+ * Extracts the executable source from a Jupyter/Colab notebook.
+ *
+ * A notebook is nested JSON, not source code, so a regular expression run over
+ * the raw file also matches markdown cells and stored cell outputs. Those are
+ * separated structurally here instead: only code cells are read, and their
+ * outputs are never looked at. The concatenated result is ordinary source, so
+ * the existing language filters apply to it unchanged.
+ *
+ * Note that line numbers then refer to the concatenated code rather than to a
+ * position in the .ipynb file.
+ * @param {string} raw Contents of the .ipynb file.
+ * @param {string} expectedExtension File extension the filter targets, e.g. ".py".
+ * @returns {string|null} The code cells joined together, or null when the
+ * notebook is unreadable or written in another language.
+ */
+const ipynbToSource = function (raw, expectedExtension) {
+  let notebook;
+  try {
+    notebook = JSON.parse(raw);
+  } catch (e) {
+    console.warn("Notebook could not be parsed and was skipped: " + e.message);
+    return null;
+  }
+  // Apply a filter only to notebooks of its own language.
+  let info = (notebook.metadata && notebook.metadata.language_info) || {};
+  let notebookExtension = info.file_extension || ".py";
+  if (expectedExtension && notebookExtension !== expectedExtension) {
+    return null;
+  }
+  return (notebook.cells || [])
+    .filter((cell) => cell.cell_type === "code")
+    .map((cell) =>
+      Array.isArray(cell.source) ? cell.source.join("") : cell.source || ""
+    )
+    .join("\n");
+};
+
 exports.filterNode = async function (graph, filter) {
   let filterRegExp = RegExp.fromString(filter.regex);
-  // Set all file-nodes to be modified by the specific filter (for all eligible files)
+  // Set all file-nodes to be modified by the specific filter (for all eligible
+  // files). Notebooks are included too: their code cells are written in the
+  // filter's language even though the file extension is .ipynb.
   let eligibleFiles = graph.nodes.filter(
-    (el) => el.meta.file && el.meta.extension === filter.extension
+    (el) =>
+      el.meta.file &&
+      (el.meta.extension === filter.extension ||
+        el.meta.extension === NOTEBOOK_EXTENSION)
   );
   // For every eligible file add data to file-node
   await Promise.all(
     eligibleFiles.map(async (e) => {
-      addNodeToGraph(
-        graph,
-        filterRegExp,
-        filter,
-        e,
-        await readFile(e.id, "utf-8")
-      );
+      let data = await readFile(e.id, "utf-8");
+      if (e.meta.extension === NOTEBOOK_EXTENSION) {
+        data = ipynbToSource(data, filter.extension);
+        if (data === null) return;
+      }
+      addNodeToGraph(graph, filterRegExp, filter, e, data);
     })
   );
   return;
 };
 
 /**
- * Removes all occurrences of the Regular Expression inside the data.
- * @param {RegExp} excludes Exclude RegEx.
- * @param {*} data
- * @returns The data without any matches of the exclude RegEx.
+ * Blanks out all occurrences of the Regular Expressions inside the data.
+ *
+ * Empty entries are skipped: the shipped filters carry an "exclude": [""]
+ * placeholder, and an empty pattern would otherwise match everywhere.
+ *
+ * The matched text is replaced with its own line breaks rather than with
+ * nothing, so every later line keeps its original number. Deleting a
+ * multi-line docstring outright would shift every following line upwards and
+ * the recorded line numbers — which "open in editor" jumps to — would point at
+ * the wrong place.
+ * @param {Array<string>} excludes Exclude RegEx strings.
+ * @param {string} data Code File.
+ * @returns The data with every excluded region blanked out.
  */
 const replaceExcludes = function (excludes, data) {
   for (exclude of excludes) {
+    if (!exclude) continue;
     let r = RegExp.fromString(exclude);
-    data = data.replace(r, "");
+    data = data.replace(r, (match) => match.replace(/[^\n]/g, ""));
   }
 
   return data;
@@ -59,8 +113,10 @@ const replaceExcludes = function (excludes, data) {
  * @returns After the nodes were added to the graph.
  */
 const addNodeToGraph = function (graph, regExp, filter, fileNode, data) {
-  if (filter.excludes) {
-    data = replaceExcludes(filter.excludes, data);
+  // The filter files spell this key "exclude"; reading "excludes" meant the
+  // feature never ran.
+  if (filter.exclude) {
+    data = replaceExcludes(filter.exclude, data);
   }
   let lineArr = data.split("\n");
   let matches = [];
@@ -96,9 +152,16 @@ const addNodeToGraph = function (graph, regExp, filter, fileNode, data) {
       return arr.toString();
     };
     let idStringTemp = fileNode.id + "|" + attributesToString(attributes);
-    // Handles duplicates
+    // Handles duplicates. Two declarations in one file that carry the same
+    // attribute values collapse into a single node, so the count is recorded on
+    // the graph — otherwise there is no way to report how many symbols were
+    // dropped.
     if (graph.nodes.some((e) => e.id === idStringTemp)) {
-      // console.warn("Duplicates where found. The Graph does not show duplicates at the moment")
+      if (!graph.meta) graph.meta = {};
+      if (!graph.meta.duplicates) graph.meta.duplicates = {};
+      graph.meta.duplicates[filter.id] =
+        (graph.meta.duplicates[filter.id] || 0) + 1;
+      console.warn("duplicate node skipped: " + idStringTemp);
       continue;
     }
     // Actual generation of a node

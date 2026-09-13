@@ -14,6 +14,23 @@ This is a known limitation - a fix is planned for an upcoming release (moving th
 
 
 
+## Filter collection
+
+GICAT extracts nodes and edges using filters: small JSON files holding a regular
+expression, the file extension it applies to, and the attributes to capture. The
+companion filter collection ships ready-made packages covering Python, R, Java,
+C, C++, C#, Fortran 77/90, Lean, OCaml, Scala and SML.
+
+- Collection: https://github.com/css-lab-rwth/gicat-filter-collection
+
+To use one, open the **Generator** page and import the package file, or load the
+individual filters from the **Filter** page. Nothing needs to be installed or
+compiled — a filter is data, not code.
+
+To support a language that is not covered yet, write a single JSON file. The
+Generator builds one for you from a pasted code snippet, so no familiarity with
+the file format is required.
+
 ## Project setup
 
 Install yarn through npm:

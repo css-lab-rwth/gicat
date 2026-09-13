@@ -37,6 +37,41 @@ exports.filterEdge = async function (graph, filter) {
 };
 
 /**
+ * Decides whether two attribute values should be linked.
+ *
+ * The default is strict equality. A source value may still list several targets
+ * (multiple inheritance, "Base, Mixin"), so it is split on commas first. Purely
+ * substring matching was the previous behaviour and is still available per
+ * filter via "mode": "contains" — it links "BaseEstimator" to "Base", which is
+ * usually a false positive.
+ *
+ * Some languages ignore letter case: Fortran accepts CALL SOLVE and
+ * SUBROUTINE Solve as the same routine, and the captured text keeps whatever
+ * casing the source happened to use. Filters for those languages set
+ * "caseInsensitive": true so the two still match.
+ * @param {string} fromValue Attribute value of the source node.
+ * @param {string} toValue Attribute value of the target node.
+ * @param {string} mode Either "contains" or "strict" (the default).
+ * @param {boolean} caseInsensitive Compare the values ignoring letter case.
+ * @returns {boolean} True if an edge should be created.
+ */
+const matchesAttribute = function (fromValue, toValue, mode, caseInsensitive) {
+  if (typeof fromValue !== "string" || typeof toValue !== "string") {
+    return false;
+  }
+  const normalise = (value) => (caseInsensitive ? value.toLowerCase() : value);
+  const from = normalise(fromValue);
+  const to = normalise(toValue);
+  if (mode === "contains") {
+    return from.includes(to) || to.includes(from);
+  }
+  return from
+    .split(",")
+    .map((part) => part.trim())
+    .includes(to.trim());
+};
+
+/**
  * Helper function to create the actual edges for edge filters from the eligible nodes which are being determined through the filterEdge function.
  * For every eligible source node it checks for each eligible target node if an edge should be created.
  * @param {ObjectConstructor} graph The graph data of the current graph with all its nodes and edges.
@@ -50,16 +85,16 @@ const createEdges = async function (
   eligibleNodesTo,
   filter
 ) {
+  const mode = filter.mode === "contains" ? "contains" : "strict";
+  const caseInsensitive = filter.caseInsensitive === true;
   for (nodeFrom of eligibleNodesFrom) {
     for (nodeTo of eligibleNodesTo) {
       if (
-        nodeFrom.meta.matches[filter.from.attribute] ===
-          nodeTo.meta.matches[filter.to.attribute] ||
-        nodeFrom.meta.matches[filter.from.attribute].includes(
-          nodeTo.meta.matches[filter.to.attribute]
-        ) ||
-        nodeTo.meta.matches[filter.to.attribute].includes(
-          nodeFrom.meta.matches[filter.from.attribute]
+        matchesAttribute(
+          nodeFrom.meta.matches[filter.from.attribute],
+          nodeTo.meta.matches[filter.to.attribute],
+          mode,
+          caseInsensitive
         )
       ) {
         graph.edges.push({
