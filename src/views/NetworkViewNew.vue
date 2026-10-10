@@ -267,8 +267,26 @@ import { mapActions, mapGetters } from "vuex";
 import { persistentStore } from "../store/persistentStore";
 import { GraphLayout } from "../webgl/GraphLayout";
 import { WebGLGraphRenderer } from "../webgl/WebGLGraphRenderer";
+import { forceRectCollide } from "../webgl/forceRectCollide";
 import { parseColor } from "../webgl/glUtils";
 const os = require("node:os");
+
+// Longest label drawn inside a node box. Anything longer is cut and marked with
+// an ellipsis, so a shortened name cannot be mistaken for the real one; the
+// untruncated text stays on the node as fullLabel and is shown on hover.
+const MAX_LABEL_CHARS = 20;
+
+/**
+ * Shortens a node label to fit inside its box, marking the cut with an ellipsis.
+ * The result is never longer than MAX_LABEL_CHARS, so box widths are unchanged.
+ * @param {string} label The full node label.
+ * @returns {string} The label as it should be drawn.
+ */
+const shortenLabel = function (label) {
+  if (!label) return "";
+  if (label.length <= MAX_LABEL_CHARS) return label;
+  return label.substring(0, MAX_LABEL_CHARS - 1) + "…";
+};
 
 export default {
   setup() {
@@ -381,6 +399,15 @@ export default {
 
     // ---- WebGL renderer integration --------------------------------------
 
+    /**
+     * Collision against the drawn label boxes. The simulation nodes are bare
+     * {id, index} pairs, so the box is looked up through the graph node.
+     * @returns {Function} The force, ready for .iterations().
+     */
+    makeCollideForce() {
+      return forceRectCollide((simNode) => this.nodeBoxSize(this.nodes[simNode.id]));
+    },
+
     // initial d3-force config (kept identical to the old ForceLayout)
     makeInitialSimulation(d3, nodes, edges) {
       const forceLink = d3.forceLink(edges).id((d) => d.id);
@@ -388,7 +415,7 @@ export default {
         .forceSimulation(nodes)
         .force("edge", forceLink.distance(this.dist).strength(this.strength))
         .force("charge", d3.forceManyBody().strength(this.charge))
-        .force("collide", d3.forceCollide(5).iterations(4))
+        .force("collide", this.makeCollideForce().iterations(4))
         .force("x", d3.forceX())
         .force("y", d3.forceY())
         .alphaMin(0.0001);
@@ -403,7 +430,7 @@ export default {
         .forceSimulation(nodes)
         .force("edge", forceLink.distance(this.dist).strength(this.strength))
         .force("charge", d3.forceManyBody().strength(this.charge))
-        .force("collide", d3.forceCollide(5).iterations(2))
+        .force("collide", this.makeCollideForce().iterations(2))
         .force("x", d3.forceX())
         .force("y", d3.forceY())
         .alphaMin(0.01)
@@ -411,6 +438,23 @@ export default {
         .velocityDecay(0.9);
       this.simulation = sim;
       return sim;
+    },
+
+    /**
+     * The box drawn for a node. The collision force and the renderer both read
+     * this, so a node can never be laid out to one size and drawn at another.
+     * @param {Object} node A graph node.
+     * @returns {{w:number, h:number, textW:number, offsetX:number}} Box size in
+     *   world units, the width the label itself needs, and how far the box
+     *   centre sits from the node position.
+     */
+    nodeBoxSize(node) {
+      const perChar = this.isFolder(node) ? 20 : 12;
+      const textW = (node && node.name ? node.name.length : 0) * perChar;
+      const w = Math.max(textW, 200);
+      // The rect is drawn from x = -textW/2, so a box widened to the 200
+      // minimum extends to the right of the node rather than around it.
+      return { w, h: 50, textW, offsetX: -textW / 2 + w / 2 };
     },
 
     // build the per-node/edge visual descriptors the renderer draws, using the
@@ -421,13 +465,8 @@ export default {
       for (let i = 0; i < nodeIds.length; i++) {
         const node = this.nodes[nodeIds[i]];
         const folder = this.isFolder(node);
-        const len = node.name ? node.name.length : 0;
-        const k = folder ? 20 : 12;
-        const w = Math.max(len * k, 200);
-        const h = 50;
-        // rect center offset from the node position (rect drawn at x=-(len*k)/2)
-        const offsetX = -(len * k) / 2 + w / 2;
-        const labelAnchorX = len * k >= 200 ? 0 : (200 - len * k) / 2;
+        const { w, h, textW, offsetX } = this.nodeBoxSize(node);
+        const labelAnchorX = textW >= 200 ? 0 : (200 - textW) / 2;
         nodeDescs[i] = {
           visible: !node.hidden && this.isFilterSelected(node),
           w,
@@ -586,7 +625,7 @@ export default {
         node.index = index;
         node.hiddenCounter = 0;
         node.fullLabel = node.label;
-        node.name = node.label ? node.label.substring(0, 20) : "";
+        node.name = shortenLabel(node.label);
         node.color = node.meta.color;
         node.strokeColor = "#000000"; // default border color
         // Initialize labelColors if not set

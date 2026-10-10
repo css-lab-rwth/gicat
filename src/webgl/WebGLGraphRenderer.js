@@ -26,6 +26,7 @@ uniform vec2 u_camCenter;
 uniform float u_zoom;
 uniform vec2 u_resolution;
 uniform float u_minFeature; // smallest on-screen size, in CSS pixels
+uniform float u_nodeCount;  // spreads the node depths over the clip range
 vec2 fetchPos(int idx){
   int x = idx % u_texW;
   int y = idx / u_texW;
@@ -34,6 +35,21 @@ vec2 fetchPos(int idx){
 vec4 worldToClip(vec2 world){
   vec2 s = (world - u_camCenter) * u_zoom + u_resolution * 0.5;
   return vec4(s.x / u_resolution.x * 2.0 - 1.0, 1.0 - s.y / u_resolution.y * 2.0, 0.0, 1.0);
+}
+// Depth for one node, so a box drawn on top also hides the labels of the nodes
+// under it. Boxes and labels are drawn in separate passes, so without this
+// every label floats above every box and the text of a covered node shows
+// through the one covering it. Later nodes sit nearer the camera: a box lands
+// on a whole step, its label half a step nearer, so the next box up hides the
+// label beneath it while a node's own label still clears its own box.
+float nodeDepth(float index, float bias){
+  float step = 2.0 / (u_nodeCount + 2.0);
+  return 1.0 - (index + 1.0 + bias) * step;
+}
+vec4 worldToClipAt(vec2 world, float z){
+  vec4 clip = worldToClip(world);
+  clip.z = z;
+  return clip;
 }
 `;
 
@@ -57,7 +73,7 @@ void main(){
   vec2 nodePos = fetchPos(int(i_index + 0.5));
   vec2 center = nodePos + i_offset;
   vec2 local = a_corner * i_size;
-  gl_Position = worldToClip(center + local);
+  gl_Position = worldToClipAt(center + local, nodeDepth(i_index, 0.0));
   v_local = local;
   v_half = i_size * 0.5;
   v_radius = min(i_radius, min(v_half.x, v_half.y));
@@ -184,7 +200,10 @@ out vec2 v_uv;
 out vec3 v_color;
 void main(){
   vec2 nodePos = fetchPos(int(i_index + 0.5));
-  gl_Position = worldToClip(nodePos + i_offset + a_corner * i_size);
+  gl_Position = worldToClipAt(
+    nodePos + i_offset + a_corner * i_size,
+    nodeDepth(i_index, 0.5)
+  );
   vec2 t = a_corner + 0.5;
   v_uv = vec2(mix(i_uv.x, i_uv.z, t.x), mix(i_uv.y, i_uv.w, t.y));
   v_color = i_color;
@@ -239,6 +258,9 @@ const RENDER_SCALE = 2;
 // Nothing is drawn thinner than this on screen; below about a pixel a line only
 // covers some of the pixels it crosses, so a solid edge looks like a dotted one.
 const MIN_FEATURE_PX = 1.2;
+
+// Gap in CSS pixels between a node's top edge and the tooltip above it.
+const TOOLTIP_GAP_PX = 8;
 
 const EDGE_LABEL_MARGIN = 20; // matches configs.edge.label.margin
 const WHITE3 = [1, 1, 1];
@@ -315,11 +337,14 @@ export class WebGLGraphRenderer {
       antialias: true,
       premultipliedAlpha: true,
       preserveDrawingBuffer: true,
+      depth: true, // node labels are hidden by the boxes drawn over them
     });
     if (!gl) throw new Error("WebGL2 is not available in this environment.");
     this.gl = gl;
     gl.clearColor(1, 1, 1, 1); // white background, like the SVG renderer
     gl.enable(gl.BLEND);
+    // Enabled per pass in _frame(); only the node passes use depth.
+    gl.depthFunc(gl.LEQUAL);
     gl.disable(gl.DEPTH_TEST);
   }
 
@@ -337,6 +362,7 @@ export class WebGLGraphRenderer {
       "u_zoom",
       "u_resolution",
       "u_minFeature",
+      "u_nodeCount",
     ];
     this.progNode = mk(NODE_VS, NODE_FS, camU, [
       "a_corner",
@@ -578,7 +604,7 @@ export class WebGLGraphRenderer {
     el.style.cssText =
       "position:absolute;pointer-events:none;z-index:20;background:rgba(0,0,0,0.8);" +
       "color:#fff;padding:2px 6px;border-radius:3px;font:12px Arial,sans-serif;" +
-      "white-space:nowrap;display:none;transform:translate(-50%,-130%);max-width:480px;" +
+      "white-space:nowrap;display:none;transform:translate(-50%,-100%);max-width:480px;" +
       "overflow:hidden;text-overflow:ellipsis;";
     const parent = this.canvas.parentElement || document.body;
     if (getComputedStyle(parent).position === "static")
@@ -1177,7 +1203,7 @@ export class WebGLGraphRenderer {
       const tip = this.callbacks.getNodeTooltip
         ? this.callbacks.getNodeTooltip(this.layout.nodeIds[nodeIdx])
         : "";
-      this._showTooltip(tip, sx, sy);
+      this._showTooltip(tip, nodeIdx, sx, sy);
     } else {
       this._hideTooltip();
     }
@@ -1187,12 +1213,34 @@ export class WebGLGraphRenderer {
     }
   }
 
-  _showTooltip(text, sx, sy) {
+  /**
+   * Shows the hover tooltip clear of the node it describes. Anchoring it to the
+   * pointer put it inside the box, on top of the label it was meant to spell
+   * out, so it sits above the node's top edge instead and only falls back to
+   * the pointer when the node's geometry is not known.
+   * @param {string} text The text to show.
+   * @param {number} nodeIdx Index of the hovered node.
+   * @param {number} sx Pointer position in CSS pixels.
+   * @param {number} sy Pointer position in CSS pixels.
+   */
+  _showTooltip(text, nodeIdx, sx, sy) {
     if (!text) return this._hideTooltip();
     const el = this.tooltipEl;
     el.textContent = text;
-    el.style.left = sx + "px";
-    el.style.top = sy + "px";
+    const pos = this.layout && this.layout.positions;
+    const desc = this.nodeDescs && this.nodeDescs[nodeIdx];
+    let x = sx;
+    let y = sy;
+    if (pos && desc) {
+      const top = this.worldToScreen(
+        pos[nodeIdx * 2] + desc.offsetX,
+        pos[nodeIdx * 2 + 1] + desc.offsetY - desc.h / 2
+      );
+      x = top.x;
+      y = top.y - TOOLTIP_GAP_PX;
+    }
+    el.style.left = x + "px";
+    el.style.top = y + "px";
     el.style.display = "block";
   }
 
@@ -1250,6 +1298,7 @@ export class WebGLGraphRenderer {
     gl.uniform1f(prog.u.u_zoom, this.cam.k);
     gl.uniform2f(prog.u.u_resolution, this.cssWidth, this.cssHeight);
     gl.uniform1f(prog.u.u_minFeature, MIN_FEATURE_PX);
+    gl.uniform1f(prog.u.u_nodeCount, this.nodeCount);
   }
 
   _frame() {
@@ -1258,7 +1307,8 @@ export class WebGLGraphRenderer {
 
     // Clear first so a downstream issue can never leave a black canvas.
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
-    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.depthMask(true); // a masked buffer cannot be cleared
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
     if (this._posDirty) this._uploadPositions();
     // Keep the graph framed while laying out (until the user takes control).
@@ -1270,7 +1320,10 @@ export class WebGLGraphRenderer {
     this.atlas.ensureMips();
     gl.bindTexture(gl.TEXTURE_2D, this.atlas.texture);
 
-    // Edges + markers (straight-alpha blend), under nodes.
+    // Edges + markers (straight-alpha blend), under nodes. They are see-through
+    // and sit behind everything, so they neither test nor record depth.
+    gl.disable(gl.DEPTH_TEST);
+    gl.depthMask(false);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     if (this.edgeCount > 0) {
       gl.useProgram(this.progEdge.program);
@@ -1284,7 +1337,23 @@ export class WebGLGraphRenderer {
       gl.drawArraysInstanced(gl.TRIANGLES, 0, 3, this.edgeCount);
     }
 
-    // Edge labels (premultiplied), above edges.
+    // Nodes, over the edges that run behind them. Each box records its depth so
+    // the label pass below can tell which boxes were drawn over it.
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthMask(true);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    if (this.nodeCount > 0) {
+      gl.useProgram(this.progNode.program);
+      this._setCameraUniforms(this.progNode);
+      gl.bindVertexArray(this.vaoNode);
+      gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, this.nodeCount);
+    }
+
+    // Edge labels (premultiplied) go over the node boxes, not under them: an
+    // edge whose midpoint falls behind a node would otherwise lose its label.
+    // They belong to no node, so they ignore depth entirely.
+    gl.disable(gl.DEPTH_TEST);
+    gl.depthMask(false);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     if (this.edgeLabelCount > 0) {
       gl.useProgram(this.progEdgeLabel.program);
@@ -1294,17 +1363,11 @@ export class WebGLGraphRenderer {
       gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, this.edgeLabelCount);
     }
 
-    // Nodes.
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-    if (this.nodeCount > 0) {
-      gl.useProgram(this.progNode.program);
-      this._setCameraUniforms(this.progNode);
-      gl.bindVertexArray(this.vaoNode);
-      gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, this.nodeCount);
-    }
-
-    // Node labels on top.
-    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    // Node labels on top, but tested against the boxes: a label sits half a
+    // depth step in front of its own box and behind every box drawn after it,
+    // so an overlapped node's text no longer shows through the node above it.
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthMask(false);
     if (this.nodeLabelCount > 0) {
       gl.useProgram(this.progNodeLabel.program);
       this._setCameraUniforms(this.progNodeLabel);
